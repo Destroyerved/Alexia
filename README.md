@@ -18,9 +18,7 @@
 
 ## <span style="color:#76B900">Overview</span>
 
-Alexia DevSecOps Guardian is an AI-assisted DevSecOps platform designed to detect security incidents, investigate their causes, correlate evidence across services, and recommend controlled remediation actions.
-
-The objective is to help engineering teams understand **what happened, why it happened, and what should happen next**, while keeping high-risk operations under policy control and human oversight.
+Alexia DevSecOps Guardian is an AI-assisted security platform designed to detect incidents, investigate root causes, analyze evidence, and recommend remediation actions. It combines security monitoring, intelligent investigation, and policy-controlled automation to help teams respond to threats faster while keeping high-risk operations under human supervision.
 
 > **Current status:** Frontend prototype with demo workflows. Live AI orchestration, production telemetry, persistent audit storage, and real remediation require backend implementation and integration.
 
@@ -94,32 +92,31 @@ An audit layer records incident evidence, investigation results, policy decision
 ## <span style="color:#76B900">System Architecture</span>
 
 ```mermaid
-flowchart TD
-    A["Security & Infrastructure Sources"] --> B["Event Ingestion"]
-    B --> C["Normalization & Correlation"]
-    C --> D["Incident Engine"]
-    D --> E["AI Orchestration"]
-    E --> F["Evidence Retrieval"]
-    F --> G["Investigation & Analysis"]
-    G --> H["Remediation Proposal"]
-    H --> I["Policy Enforcement"]
-    I --> J{"Action Permitted?"}
-    J -->|Policy allows| K["Controlled Execution"]
-    J -->|Approval required| L["Human Approval"]
-    J -->|Denied| M["Blocked & Audited"]
-    L -->|Approved| K
-    L -->|Rejected| M
-    K --> N["Outcome Verification"]
-    N --> O["Audit & Reporting"]
-    M --> O
+flowchart LR
+    A["Security Sources"] --> B["Ingestion & Correlation"]
+    B --> C["AI Investigation"]
+    C --> D["Remediation Plan"]
+    D --> E{"Policy Check"}
 
-    linkStyle default stroke:#76B900,stroke-width:2px
+    E -->|Allowed| F["Execute & Verify"]
+    E -->|Approval needed| G["Human Approval"]
+    G -->|Approved| F
+    E -->|Denied| H["Block Action"]
+
+    F --> I["Audit Log"]
+    H --> I
+
+    linkStyle default stroke:#76B900,stroke-width:1.5px
+
     style A fill:#000000,color:#76B900,stroke:#76B900
+    style B fill:#000000,color:#76B900,stroke:#76B900
+    style C fill:#000000,color:#76B900,stroke:#76B900
     style D fill:#000000,color:#76B900,stroke:#76B900
     style E fill:#000000,color:#76B900,stroke:#76B900
+    style F fill:#000000,color:#76B900,stroke:#76B900
+    style G fill:#000000,color:#76B900,stroke:#76B900
+    style H fill:#000000,color:#76B900,stroke:#76B900
     style I fill:#000000,color:#76B900,stroke:#76B900
-    style K fill:#000000,color:#76B900,stroke:#76B900
-    style O fill:#000000,color:#76B900,stroke:#76B900
 ```
 
 *This represents the intended architecture, not a claim that every component is already implemented.*
@@ -168,31 +165,6 @@ Backend choices remain subject to implementation and integration decisions.
 | AI investigation | Implementation and integration required |
 | Policy enforcement and remediation | Secure backend implementation required |
 | Persistent audit records | Backend integration required |
-
-## <span style="color:#76B900">Getting Started</span>
-
-**Prerequisites:** Node.js, npm, and Git.
-
-```bash
-git clone <YOUR_REPOSITORY_URL>
-cd alexia-dashboard
-npm install
-npm run dev
-```
-
-Open the local URL printed by Vite.
-
-### Production Build
-
-```bash
-npm run build
-```
-
-The production build is generated in `dist/`.
-
-The frontend can run independently as a prototype. Live telemetry, AI investigation, persistent records, and infrastructure actions require configured backend services.
-
-**Never commit `.env` files, API keys, or infrastructure credentials.**
 
 ## <span style="color:#76B900">Project Vision</span>
 
