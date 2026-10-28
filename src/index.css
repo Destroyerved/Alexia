@@ -1,0 +1,207 @@
+@import "tailwindcss";
+
+:root {
+  /* Clean Dark Cyber-Green Palette */
+  --bg-main: #080B08;
+  --bg-secondary: #0D120E;
+  --surface-primary: rgba(16, 21, 16, 0.84);
+  --surface-card: rgba(19, 26, 20, 0.80);
+  --surface-hover: rgba(25, 35, 27, 0.90);
+
+  --accent-primary: #00E94F;
+  --accent-hover: #00D347;
+  --accent-secondary: #16D965;
+  --accent-muted: rgba(0, 233, 79, 0.12);
+  --accent-glow: rgba(0, 233, 79, 0.18);
+
+  --text-primary: #F5F7F5;
+  --text-secondary: #A0AAA2;
+  --text-muted: #6E7B71;
+
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-medium: rgba(255, 255, 255, 0.14);
+  --border-highlight: rgba(0, 233, 79, 0.4);
+
+  /* Semantic status tokens */
+  --status-critical: #FF4D4D;
+  --status-critical-bg: rgba(255, 77, 77, 0.12);
+  --status-critical-border: rgba(255, 77, 77, 0.25);
+
+  --status-warning: #FFB800;
+  --status-warning-bg: rgba(255, 184, 0, 0.12);
+  --status-warning-border: rgba(255, 184, 0, 0.25);
+
+  --status-info: #38BDF8;
+  --status-info-bg: rgba(56, 189, 248, 0.12);
+  --status-info-border: rgba(56, 189, 248, 0.25);
+
+  --status-success: #00E94F;
+  --status-success-bg: rgba(0, 233, 79, 0.12);
+  --status-success-border: rgba(0, 233, 79, 0.25);
+
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Light Theme Overrides */
+html.light {
+  --bg-main: #F5F7F5;
+  --bg-secondary: #FFFFFF;
+  --surface-primary: rgba(255, 255, 255, 0.88);
+  --surface-card: rgba(255, 255, 255, 0.85);
+  --surface-hover: rgba(240, 244, 241, 0.92);
+
+  --accent-primary: #087F3E;
+  --accent-hover: #076E36;
+  --accent-secondary: #0A9D4B;
+  --accent-muted: #E2F0E5;
+  --accent-glow: rgba(8, 127, 62, 0.12);
+
+  --text-primary: #17231A;
+  --text-secondary: #5E6D62;
+  --text-muted: #829486;
+
+  --border-subtle: #E0E6E1;
+  --border-medium: #D0D8D1;
+  --border-highlight: rgba(8, 127, 62, 0.4);
+
+  --status-critical: #D92D20;
+  --status-critical-bg: #FEE4E2;
+  --status-critical-border: #FECDCA;
+
+  --status-warning: #B54708;
+  --status-warning-bg: #FEF0C7;
+  --status-warning-border: #FEDF89;
+
+  --status-info: #026AA2;
+  --status-info-bg: #E0F2FE;
+  --status-info-border: #B9E6FE;
+
+  --status-success: #087F3E;
+  --status-success-bg: #EDF7F0;
+  --status-success-border: #B7E4C7;
+}
+
+/* Clean, modern web application base */
+html, body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  min-height: 100%;
+  transition: background-color 0.2s ease, color 0.2s ease;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Subtle, unobtrusive scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-medium);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Clean card & container styles with backdrop-filter for grid visibility */
+.web-card {
+  background-color: var(--surface-primary);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.75rem;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.web-card:hover {
+  border-color: var(--border-medium);
+}
+
+/* Primary Website Button (Styled like reference "Get Assessment") */
+.web-btn-primary {
+  background-color: var(--accent-primary);
+  color: #050806;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+  cursor: pointer;
+  border: none;
+  white-space: nowrap;
+}
+
+html.light .web-btn-primary {
+  background-color: var(--accent-primary);
+  color: #FFFFFF;
+}
+
+.web-btn-primary:hover:not(:disabled) {
+  background-color: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.web-btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* Secondary Button */
+.web-btn-secondary {
+  background-color: var(--surface-primary);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--text-primary);
+  font-weight: 500;
+  font-size: 0.8125rem;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px solid var(--border-subtle);
+  transition: all 0.15s ease;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.web-btn-secondary:hover:not(:disabled) {
+  background-color: var(--surface-hover);
+  border-color: var(--border-medium);
+}
+
+/* Simple, readable input */
+.web-input {
+  background-color: var(--surface-primary);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.5rem;
+  color: var(--text-primary);
+  padding: 0.45rem 0.75rem;
+  font-size: 0.8125rem;
+  transition: border-color 0.15s ease;
+}
+
+.web-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}

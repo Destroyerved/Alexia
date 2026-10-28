@@ -1,0 +1,1115 @@
+{
+ "AEC": {
+  "lat": 23.0751088,
+  "lon": 72.593291,
+  "brts": {
+   "name": "Sabarmati Power House",
+   "lat": 23.073943,
+   "lon": 72.592581,
+   "distM": 149
+  },
+  "amts": {
+   "name": "Power House Staff Quarters",
+   "lat": 23.075866,
+   "lon": 72.594408,
+   "distM": 142,
+   "stopsWithin500m": 8
+  },
+  "crosscheck": {
+   "brtsGtfsM": 149,
+   "amtsGtfsM": 144
+  }
+ },
+ "APMC": {
+  "lat": 22.9977445,
+  "lon": 72.5371222,
+  "brts": {
+   "name": "Maktampura Ward Office",
+   "lat": 22.99575,
+   "lon": 72.535085,
+   "distM": 304
+  },
+  "amts": {
+   "name": "APMC Market",
+   "lat": 22.997354,
+   "lon": 72.537489,
+   "distM": 57,
+   "stopsWithin500m": 10
+  },
+  "crosscheck": {
+   "brtsGtfsM": 304,
+   "amtsGtfsM": 58
+  }
+ },
+ "Akshardham": {
+  "lat": 23.2236772,
+  "lon": 72.6641817,
+  "brts": {
+   "name": "Amba Township",
+   "lat": 23.189715,
+   "lon": 72.576306,
+   "distM": 9742
+  },
+  "amts": {
+   "name": "Prerna Circle CH-5",
+   "lat": 23.22918,
+   "lon": 72.658229,
+   "distM": 863,
+   "stopsWithin500m": 0
+  },
+  "crosscheck": {
+   "brtsGtfsM": 9742,
+   "amtsGtfsM": 863
+  }
+ },
+ "Amraiwadi": {
+  "lat": 23.0078462,
+  "lon": 72.6283735,
+  "brts": {
+   "name": "Swastik Industries",
+   "lat": 23.007897,
+   "lon": 72.627525,
+   "distM": 87
+  },
+  "amts": {
+   "name": "Swastik Industries",
+   "lat": 23.007751,
+   "lon": 72.627785,
+   "distM": 61,
+   "stopsWithin500m": 13
+  },
+  "crosscheck": {
+   "brtsGtfsM": 958,
+   "amtsGtfsM": 60
+  }
+ },
+ "Apparel Park": {
+  "lat": 23.0106557,
+  "lon": 72.6182366,
+  "brts": {
+   "name": "Anaj Bazaar",
+   "lat": 23.005173,
+   "lon": 72.614736,
+   "distM": 707
+  },
+  "amts": {
+   "name": "New Cotton Mill",
+   "lat": 23.010796,
+   "lon": 72.616933,
+   "distM": 134,
+   "stopsWithin500m": 9
+  },
+  "crosscheck": {
+   "brtsGtfsM": 1311,
+   "amtsGtfsM": 21
+  }
+ },
+ "Commerce Six Road": {
+  "lat": 23.0407013,
+  "lon": 72.552973,
+  "brts": {
+   "name": "Jain Upashray (Hira Panna Flats)",
+   "lat": 23.04027,
+   "lon": 72.553972,
+   "distM": 113
+  },
+  "amts": {
+   "name": "Jain Upashray (Hira Panna Flats)",
+   "lat": 23.04104,
+   "lon": 72.55265,
+   "distM": 50,
+   "stopsWithin500m": 13
+  },
+  "crosscheck": {
+   "brtsGtfsM": 762,
+   "amtsGtfsM": 50
+  }
+ },
+ "Dholakuva Circle": {
+  "lat": 23.1859445,
+  "lon": 72.6433202,
+  "brts": {
+   "name": "Adalaj Circle",
+   "lat": 23.166944,
+   "lon": 72.586919,
+   "distM": 6140
+  },
+  "amts": {
+   "name": "Raksha Shakti Circle",
+   "lat": 23.185165,
+   "lon": 72.638269,
+   "distM": 524,
+   "stopsWithin500m": 0
+  },
+  "crosscheck": {
+   "brtsGtfsM": 6140,
+   "amtsGtfsM": 523
+  }
+ },
+ "Doordarshan Kendra": {
+  "lat": 23.0481764,
+  "lon": 72.5244209,
+  "brts": {
+   "name": "Telephone Training Centre (Ambawadi)",
+   "lat": 23.048135,
+   "lon": 72.524631,
+   "distM": 22
+  },
+  "amts": {
+   "name": "Telephone Training Centre (Ambawadi)",
+   "lat": 23.048135,
+   "lon": 72.524631,
+   "distM": 22,
+   "stopsWithin500m": 14
+  },
+  "crosscheck": {
+   "brtsGtfsM": 1728,
+   "amtsGtfsM": 82
+  }
+ },
+ "GNLU": {
+  "lat": 23.1544724,
+  "lon": 72.6474689,
+  "brts": {
+   "name": "Swagat City",
+   "lat": 23.160146,
+   "lon": 72.587831,
+   "distM": 6130
+  },
+  "amts": {
+   "name": "Gandhinagar Kelvani Mandal",
+   "lat": 23.156134,
+   "lon": 72.635216,
+   "distM": 1266,
+   "stopsWithin500m": 0
+  },
+  "crosscheck": {
+   "brtsGtfsM": 6130,
+   "amtsGtfsM": 1277
+  }
+ },
+ "Gandhigram": {
+  "lat": 23.0270955,
+  "lon": 72.5690238,
+  "brts": {
+   "name": "Natraj Cinema",
+   "lat": 23.02874,
+   "lon": 72.570675,
+   "distM": 249
+  },
+  "amts": {
+   "name": "Nataraj Cinema",
+   "lat": 23.028653,
+   "lon": 72.570706,
+   "distM": 244,
+   "stopsWithin500m": 13
+  },
+  "crosscheck": {
+   "brtsGtfsM": 396,
+   "amtsGtfsM": 230
+  }
+ },
+ "Gheekanta": {
+  "lat": 23.028794,
+  "lon": 72.5867752,
+  "brts": {
+   "name": "Jansatta Karyalay",
+   "lat": 23.030539,
+   "lon": 72.583157,
+   "distM": 418
+  },
+  "amts": {
+   "name": "Krushna Cinema",
+   "lat": 23.027593,
+   "lon": 72.587695,
+   "distM": 163,
+   "stopsWithin500m": 12
+  },
+  "crosscheck": {
+   "brtsGtfsM": 899,
+   "amtsGtfsM": 176
+  }
+ },
+ "GIFT City": {
+  "lat": 23.1533555,
+  "lon": 72.6855536,
+  "brts": {
+   "name": "Naroda Industrial Township",
+   "lat": 23.094202,
+   "lon": 72.675819,
+   "distM": 6652
+  },
+  "amts": {
+   "name": "Matri Mata nu Mandir",
+   "lat": 23.14629,
+   "lon": 72.685985,
+   "distM": 787,
+   "stopsWithin500m": 0
+  },
+  "crosscheck": {
+   "brtsGtfsM": 7238,
+   "amtsGtfsM": 756
+  }
+ },
+ "Gujarat University": {
+  "lat": 23.0448477,
+  "lon": 72.5435296,
+  "brts": {
+   "name": "Kailashnagar",
+   "lat": 23.044763,
+   "lon": 72.54361,
+   "distM": 13
+  },
+  "amts": {
+   "name": "Kailasnagar",
+   "lat": 23.044763,
+   "lon": 72.54361,
+   "distM": 13,
+   "stopsWithin500m": 14
+  },
+  "crosscheck": {
+   "brtsGtfsM": 133,
+   "amtsGtfsM": 91
+  }
+ },
+ "Gurukul Road": {
+  "lat": 23.0458829,
+  "lon": 72.5348734,
+  "brts": {
+   "name": "Gurukul",
+   "lat": 23.04582,
+   "lon": 72.533436,
+   "distM": 147
+  },
+  "amts": {
+   "name": "Gurukul",
+   "lat": 23.045993,
+   "lon": 72.534668,
+   "distM": 24,
+   "stopsWithin500m": 9
+  },
+  "crosscheck": {
+   "brtsGtfsM": 780,
+   "amtsGtfsM": 24
+  }
+ },
+ "Infocity": {
+  "lat": 23.1922574,
+  "lon": 72.6397126,
+  "brts": {
+   "name": "Adalaj Circle",
+   "lat": 23.166944,
+   "lon": 72.586919,
+   "distM": 6086
+  },
+  "amts": {
+   "name": "Infocity",
+   "lat": 23.191331,
+   "lon": 72.639062,
+   "distM": 123,
+   "stopsWithin500m": 2
+  },
+  "crosscheck": {
+   "brtsGtfsM": 6087,
+   "amtsGtfsM": 123
+  }
+ },
+ "Jivraj Park": {
+  "lat": 23.0054989,
+  "lon": 72.5334928,
+  "brts": {
+   "name": "Maktampura Ward Office",
+   "lat": 22.99575,
+   "lon": 72.535085,
+   "distM": 1096
+  },
+  "amts": {
+   "name": "Jivraj Park",
+   "lat": 23.005364,
+   "lon": 72.533472,
+   "distM": 15,
+   "stopsWithin500m": 16
+  },
+  "crosscheck": {
+   "brtsGtfsM": 1096,
+   "amtsGtfsM": 38
+  }
+ },
+ "Juna Koba": {
+  "lat": 23.1419718,
+  "lon": 72.6386122,
+  "brts": {
+   "name": "Kalpataru Park",
+   "lat": 23.136461,
+   "lon": 72.586358,
+   "distM": 5378
+  },
+  "amts": {
+   "name": "Satnam Motors (Bharat Petrolium)",
+   "lat": 23.143798,
+   "lon": 72.634113,
+   "distM": 503,
+   "stopsWithin500m": 0
+  },
+  "crosscheck": {
+   "brtsGtfsM": 5378,
+   "amtsGtfsM": 503
+  }
+ },
+ "Juna Sachivalaya": {
+  "lat": 23.228926,
+  "lon": 72.6594151,
+  "brts": {
+   "name": "Amba Township",
+   "lat": 23.189715,
+   "lon": 72.576306,
+   "distM": 9547
+  },
+  "amts": {
+   "name": "Prerna Circle CH-5",
+   "lat": 23.22918,
+   "lon": 72.658229,
+   "distM": 124,
+   "stopsWithin500m": 1
+  },
+  "crosscheck": {
+   "brtsGtfsM": 9547,
+   "amtsGtfsM": 124
+  }
+ },
+ "Kalupur Railway Station": {
+  "lat": 23.0246913,
+  "lon": 72.6031447,
+  "brts": {
+   "name": "Kalupur",
+   "lat": 23.026879,
+   "lon": 72.600349,
+   "distM": 376
+  },
+  "amts": {
+   "name": "Chartoda Kbrstan Char Rasta",
+   "lat": 23.024628,
+   "lon": 72.606543,
+   "distM": 348,
+   "stopsWithin500m": 14
+  },
+  "crosscheck": {
+   "brtsGtfsM": 376,
+   "amtsGtfsM": 341
+  }
+ },
+ "Kankaria East": {
+  "lat": 23.0154573,
+  "lon": 72.6070016,
+  "brts": {
+   "name": "Kamdar Medan",
+   "lat": 23.020345,
+   "lon": 72.605533,
+   "distM": 564
+  },
+  "amts": {
+   "name": "Rajpur Tollnaka",
+   "lat": 23.016495,
+   "lon": 72.607055,
+   "distM": 116,
+   "stopsWithin500m": 5
+  },
+  "crosscheck": {
+   "brtsGtfsM": 917,
+   "amtsGtfsM": 115
+  }
+ },
+ "Koba Circle": {
+  "lat": 23.1322508,
+  "lon": 72.631042,
+  "brts": {
+   "name": "Kalpataru Park",
+   "lat": 23.136461,
+   "lon": 72.586358,
+   "distM": 4593
+  },
+  "amts": {
+   "name": "Manvar Party Plot",
+   "lat": 23.131495,
+   "lon": 72.632625,
+   "distM": 182,
+   "stopsWithin500m": 3
+  },
+  "crosscheck": {
+   "brtsGtfsM": 4593,
+   "amtsGtfsM": 63
+  }
+ },
+ "Koba Gam": {
+  "lat": 23.1476098,
+  "lon": 72.6439055,
+  "brts": {
+   "name": "Swagat City",
+   "lat": 23.160146,
+   "lon": 72.587831,
+   "distM": 5900
+  },
+  "amts": {
+   "name": "Kamalam",
+   "lat": 23.147565,
+   "lon": 72.634516,
+   "distM": 960,
+   "stopsWithin500m": 0
+  },
+  "crosscheck": {
+   "brtsGtfsM": 5900,
+   "amtsGtfsM": 960
+  }
+ },
+ "Koteshwar Road": {
+  "lat": 23.1031114,
+  "lon": 72.6021329,
+  "brts": {
+   "name": "Vishvakarma Engineering College",
+   "lat": 23.104971,
+   "lon": 72.596592,
+   "distM": 603
+  },
+  "amts": {
+   "name": "Akashdarshan Society",
+   "lat": 23.103153,
+   "lon": 72.6022,
+   "distM": 8,
+   "stopsWithin500m": 12
+  },
+  "crosscheck": {
+   "brtsGtfsM": 603,
+   "amtsGtfsM": 32
+  }
+ },
+ "Mahatma Mandir": {
+  "lat": 23.2339412,
+  "lon": 72.6338714,
+  "brts": {
+   "name": "Amba Township",
+   "lat": 23.189715,
+   "lon": 72.576306,
+   "distM": 7668
+  },
+  "amts": {
+   "name": "Juna Sachivalay",
+   "lat": 23.222039,
+   "lon": 72.653719,
+   "distM": 2422,
+   "stopsWithin500m": 0
+  },
+  "crosscheck": {
+   "brtsGtfsM": 7667,
+   "amtsGtfsM": 2172
+  }
+ },
+ "Motera Stadium": {
+  "lat": 23.0967726,
+  "lon": 72.596692,
+  "brts": {
+   "name": "Visat -Gandhinagar Junction",
+   "lat": 23.097363,
+   "lon": 72.5886,
+   "distM": 830
+  },
+  "amts": {
+   "name": "Sangath Bunglows",
+   "lat": 23.096501,
+   "lon": 72.59662,
+   "distM": 31,
+   "stopsWithin500m": 5
+  },
+  "crosscheck": {
+   "brtsGtfsM": 830,
+   "amtsGtfsM": 16
+  }
+ },
+ "Narmada Canal": {
+  "lat": 23.1251457,
+  "lon": 72.6220979,
+  "brts": {
+   "name": "Vishvakarma Engineering College",
+   "lat": 23.104971,
+   "lon": 72.596592,
+   "distM": 3440
+  },
+  "amts": {
+   "name": "Tapovan Circle (S.P.Ring Road)",
+   "lat": 23.118911,
+   "lon": 72.615135,
+   "distM": 994,
+   "stopsWithin500m": 0
+  },
+  "crosscheck": {
+   "brtsGtfsM": 3441,
+   "amtsGtfsM": 29
+  }
+ },
+ "Nirant Cross Road": {
+  "lat": 22.9998991,
+  "lon": 72.6585088,
+  "brts": {
+   "name": "Nirant Chokdi",
+   "lat": 22.999932,
+   "lon": 72.657775,
+   "distM": 75
+  },
+  "amts": {
+   "name": "Surabhi Society (Nirant Chokdi)",
+   "lat": 23.000416,
+   "lon": 72.658101,
+   "distM": 71,
+   "stopsWithin500m": 14
+  },
+  "crosscheck": {
+   "brtsGtfsM": 2264,
+   "amtsGtfsM": 77
+  }
+ },
+ "Old High Court": {
+  "lat": 23.0372892,
+  "lon": 72.5672065,
+  "brts": {
+   "name": "Metro Station",
+   "lat": 23.037338,
+   "lon": 72.568856,
+   "distM": 169
+  },
+  "amts": {
+   "name": "Metro Station",
+   "lat": 23.037383,
+   "lon": 72.568877,
+   "distM": 171,
+   "stopsWithin500m": 13
+  },
+  "crosscheck": {
+   "brtsGtfsM": 1540,
+   "amtsGtfsM": 163
+  }
+ },
+ "PDEU": {
+  "lat": 23.1548645,
+  "lon": 72.6612117,
+  "brts": {
+   "name": "Naroda Industrial Township",
+   "lat": 23.094202,
+   "lon": 72.675819,
+   "distM": 6909
+  },
+  "amts": {
+   "name": "Gandhinagar Kelvani Mandal",
+   "lat": 23.156134,
+   "lon": 72.635216,
+   "distM": 2661,
+   "stopsWithin500m": 0
+  },
+  "crosscheck": {
+   "brtsGtfsM": 7525,
+   "amtsGtfsM": 1799
+  }
+ },
+ "Paldi": {
+  "lat": 23.0185053,
+  "lon": 72.5624076,
+  "brts": {
+   "name": "University Granth Nirman Board",
+   "lat": 23.02066,
+   "lon": 72.560603,
+   "distM": 303
+  },
+  "amts": {
+   "name": "Jalaram Mandir",
+   "lat": 23.01744,
+   "lon": 72.56182,
+   "distM": 133,
+   "stopsWithin500m": 12
+  },
+  "crosscheck": {
+   "brtsGtfsM": 699,
+   "amtsGtfsM": 216
+  }
+ },
+ "Rabari Colony": {
+  "lat": 23.005413,
+  "lon": 72.6355917,
+  "brts": {
+   "name": "Rabari Colony",
+   "lat": 23.004314,
+   "lon": 72.636891,
+   "distM": 181
+  },
+  "amts": {
+   "name": "Ghanti",
+   "lat": 23.005749,
+   "lon": 72.634584,
+   "distM": 110,
+   "stopsWithin500m": 17
+  },
+  "crosscheck": {
+   "brtsGtfsM": 182,
+   "amtsGtfsM": 110
+  }
+ },
+ "Rajiv Nagar": {
+  "lat": 23.0097229,
+  "lon": 72.5367523,
+  "brts": {
+   "name": "Manekbaug",
+   "lat": 23.018266,
+   "lon": 72.544056,
+   "distM": 1209
+  },
+  "amts": {
+   "name": "Shrikunj Society",
+   "lat": 23.009783,
+   "lon": 72.537715,
+   "distM": 99,
+   "stopsWithin500m": 11
+  },
+  "crosscheck": {
+   "brtsGtfsM": 1209,
+   "amtsGtfsM": 228
+  }
+ },
+ "Randesan": {
+  "lat": 23.1790845,
+  "lon": 72.6472905,
+  "brts": {
+   "name": "Adalaj Circle",
+   "lat": 23.166944,
+   "lon": 72.586919,
+   "distM": 6317
+  },
+  "amts": {
+   "name": "Raksha Shakti Circle",
+   "lat": 23.185165,
+   "lon": 72.638269,
+   "distM": 1143,
+   "stopsWithin500m": 0
+  },
+  "crosscheck": {
+   "brtsGtfsM": 6317,
+   "amtsGtfsM": 989
+  }
+ },
+ "Ranip": {
+  "lat": 23.0676741,
+  "lon": 72.5740838,
+  "brts": {
+   "name": "Ranip Cross Road",
+   "lat": 23.067603,
+   "lon": 72.575648,
+   "distM": 160
+  },
+  "amts": {
+   "name": "Ranip ST Bus Stand",
+   "lat": 23.067582,
+   "lon": 72.575408,
+   "distM": 136,
+   "stopsWithin500m": 10
+  },
+  "crosscheck": {
+   "brtsGtfsM": 160,
+   "amtsGtfsM": 119
+  }
+ },
+ "Raysan": {
+  "lat": 23.1663954,
+  "lon": 72.6483252,
+  "brts": {
+   "name": "Swagat City",
+   "lat": 23.160146,
+   "lon": 72.587831,
+   "distM": 6223
+  },
+  "amts": {
+   "name": "City Pulse - Randesan",
+   "lat": 23.174547,
+   "lon": 72.637198,
+   "distM": 1454,
+   "stopsWithin500m": 0
+  },
+  "crosscheck": {
+   "brtsGtfsM": 6223,
+   "amtsGtfsM": 1231
+  }
+ },
+ "SP Stadium": {
+  "lat": 23.0398414,
+  "lon": 72.5616768,
+  "brts": {
+   "name": "Swastik Society",
+   "lat": 23.036885,
+   "lon": 72.560696,
+   "distM": 344
+  },
+  "amts": {
+   "name": "Sardar Patel Stadium",
+   "lat": 23.040491,
+   "lon": 72.56348,
+   "distM": 198,
+   "stopsWithin500m": 9
+  },
+  "crosscheck": {
+   "brtsGtfsM": 1417,
+   "amtsGtfsM": 208
+  }
+ },
+ "Sabarmati Railway Station": {
+  "lat": 23.0856303,
+  "lon": 72.592206,
+  "brts": {
+   "name": "Sabarmati Police Station",
+   "lat": 23.086039,
+   "lon": 72.591903,
+   "distM": 55
+  },
+  "amts": {
+   "name": "Abu-Koba Cross Road",
+   "lat": 23.086486,
+   "lon": 72.592,
+   "distM": 97,
+   "stopsWithin500m": 11
+  },
+  "crosscheck": {
+   "brtsGtfsM": 55,
+   "amtsGtfsM": 61
+  }
+ },
+ "Sachivalaya": {
+  "lat": 23.2150688,
+  "lon": 72.6587511,
+  "brts": {
+   "name": "Amba Township",
+   "lat": 23.189715,
+   "lon": 72.576306,
+   "distM": 8885
+  },
+  "amts": {
+   "name": "Vidhan Sabha - Udhyog Bhavan Crossroad",
+   "lat": 23.216859,
+   "lon": 72.65051,
+   "distM": 865,
+   "stopsWithin500m": 0
+  },
+  "crosscheck": {
+   "brtsGtfsM": 8885,
+   "amtsGtfsM": 846
+  }
+ },
+ "Sector-10A": {
+  "lat": 23.2114841,
+  "lon": 72.6501927,
+  "brts": {
+   "name": "Amba Township",
+   "lat": 23.189715,
+   "lon": 72.576306,
+   "distM": 7930
+  },
+  "amts": {
+   "name": "CH-3 Circle (Sector-11)",
+   "lat": 23.212103,
+   "lon": 72.647547,
+   "distM": 279,
+   "stopsWithin500m": 1
+  },
+  "crosscheck": {
+   "brtsGtfsM": 7929,
+   "amtsGtfsM": 275
+  }
+ },
+ "Sector-1": {
+  "lat": 23.2049077,
+  "lon": 72.6431519,
+  "brts": {
+   "name": "Amba Township",
+   "lat": 23.189715,
+   "lon": 72.576306,
+   "distM": 7038
+  },
+  "amts": {
+   "name": "Metro Station Sector-1",
+   "lat": 23.205244,
+   "lon": 72.643222,
+   "distM": 38,
+   "stopsWithin500m": 1
+  },
+  "crosscheck": {
+   "brtsGtfsM": 7037,
+   "amtsGtfsM": 841
+  }
+ },
+ "Sector-16": {
+  "lat": 23.2338826,
+  "lon": 72.6501659,
+  "brts": {
+   "name": "Amba Township",
+   "lat": 23.189715,
+   "lon": 72.576306,
+   "distM": 9005
+  },
+  "amts": {
+   "name": "Prerna Circle CH-5",
+   "lat": 23.22918,
+   "lon": 72.658229,
+   "distM": 976,
+   "stopsWithin500m": 0
+  },
+  "crosscheck": {
+   "brtsGtfsM": 9005,
+   "amtsGtfsM": 976
+  }
+ },
+ "Sector-24": {
+  "lat": 23.2385075,
+  "lon": 72.6414782,
+  "brts": {
+   "name": "Amba Township",
+   "lat": 23.189715,
+   "lon": 72.576306,
+   "distM": 8590
+  },
+  "amts": {
+   "name": "Prerna Circle CH-5",
+   "lat": 23.22918,
+   "lon": 72.658229,
+   "distM": 2001,
+   "stopsWithin500m": 0
+  },
+  "crosscheck": {
+   "brtsGtfsM": 8590,
+   "amtsGtfsM": 2001
+  }
+ },
+ "Shahpur": {
+  "lat": 23.0392105,
+  "lon": 72.5810327,
+  "brts": {
+   "name": "Shahpur Darwaja",
+   "lat": 23.039371,
+   "lon": 72.580565,
+   "distM": 51
+  },
+  "amts": {
+   "name": "Shahpur Darwaja",
+   "lat": 23.039192,
+   "lon": 72.58086,
+   "distM": 18,
+   "stopsWithin500m": 11
+  },
+  "crosscheck": {
+   "brtsGtfsM": 510,
+   "amtsGtfsM": 10
+  }
+ },
+ "Shreyas": {
+  "lat": 23.0135977,
+  "lon": 72.5492225,
+  "brts": {
+   "name": "Dharnidhar Derasar",
+   "lat": 23.008206,
+   "lon": 72.549301,
+   "distM": 600
+  },
+  "amts": {
+   "name": "Sharda Society",
+   "lat": 23.013013,
+   "lon": 72.548653,
+   "distM": 87,
+   "stopsWithin500m": 14
+  },
+  "crosscheck": {
+   "brtsGtfsM": 599,
+   "amtsGtfsM": 90
+  }
+ },
+ "Tapovan Circle": {
+  "lat": 23.1201271,
+  "lon": 72.6157987,
+  "brts": {
+   "name": "Vishvakarma Engineering College",
+   "lat": 23.104971,
+   "lon": 72.596592,
+   "distM": 2588
+  },
+  "amts": {
+   "name": "Tapovan Circle (S.P.Ring Road)",
+   "lat": 23.118911,
+   "lon": 72.615135,
+   "distM": 151,
+   "stopsWithin500m": 2
+  },
+  "crosscheck": {
+   "brtsGtfsM": 2588,
+   "amtsGtfsM": 141
+  }
+ },
+ "Thaltej": {
+  "lat": 23.049748,
+  "lon": 72.5160152,
+  "brts": {
+   "name": "Sal Hospital",
+   "lat": 23.04945,
+   "lon": 72.52381,
+   "distM": 798
+  },
+  "amts": {
+   "name": "Bhaikakanagar",
+   "lat": 23.0497,
+   "lon": 72.515875,
+   "distM": 15,
+   "stopsWithin500m": 16
+  },
+  "crosscheck": {
+   "brtsGtfsM": 2192,
+   "amtsGtfsM": 17
+  }
+ },
+ "Thaltej Gam": {
+  "lat": 23.0502062,
+  "lon": 72.5070123,
+  "brts": {
+   "name": "Sal Hospital",
+   "lat": 23.04945,
+   "lon": 72.52381,
+   "distM": 1721
+  },
+  "amts": {
+   "name": "Talavdi (Thaltej)",
+   "lat": 23.05025,
+   "lon": 72.506926,
+   "distM": 10,
+   "stopsWithin500m": 16
+  },
+  "crosscheck": {
+   "brtsGtfsM": 2533,
+   "amtsGtfsM": 10
+  }
+ },
+ "Usmanpura": {
+  "lat": 23.0458371,
+  "lon": 72.564982,
+  "brts": {
+   "name": "Vidyanagar High School",
+   "lat": 23.047418,
+   "lon": 72.567703,
+   "distM": 329
+  },
+  "amts": {
+   "name": "Sardar Patel Colony",
+   "lat": 23.046841,
+   "lon": 72.565756,
+   "distM": 137,
+   "stopsWithin500m": 16
+  },
+  "crosscheck": {
+   "brtsGtfsM": 1396,
+   "amtsGtfsM": 137
+  }
+ },
+ "Vadaj": {
+  "lat": 23.0676671,
+  "lon": 72.5657588,
+  "brts": {
+   "name": "Akhbarnagar",
+   "lat": 23.067515,
+   "lon": 72.563763,
+   "distM": 205
+  },
+  "amts": {
+   "name": "Vyaswadi",
+   "lat": 23.068106,
+   "lon": 72.566513,
+   "distM": 91,
+   "stopsWithin500m": 15
+  },
+  "crosscheck": {
+   "brtsGtfsM": 205,
+   "amtsGtfsM": 91
+  }
+ },
+ "Vastral": {
+  "lat": 23.0034916,
+  "lon": 72.6476943,
+  "brts": {
+   "name": "Ram Rajya Nagar",
+   "lat": 23.007985,
+   "lon": 72.638116,
+   "distM": 1100
+  },
+  "amts": {
+   "name": "Mahadevnagar Tekra",
+   "lat": 23.0036,
+   "lon": 72.647203,
+   "distM": 52,
+   "stopsWithin500m": 10
+  },
+  "crosscheck": {
+   "brtsGtfsM": 1100,
+   "amtsGtfsM": 54
+  }
+ },
+ "Vastral Gam": {
+  "lat": 22.9971313,
+  "lon": 72.6674512,
+  "brts": {
+   "name": "Nirant Chokdi",
+   "lat": 22.999932,
+   "lon": 72.657775,
+   "distM": 1038
+  },
+  "amts": {
+   "name": "Sukharam Mahadev",
+   "lat": 22.997223,
+   "lon": 72.667251,
+   "distM": 23,
+   "stopsWithin500m": 7
+  },
+  "crosscheck": {
+   "brtsGtfsM": 3033,
+   "amtsGtfsM": 29
+  }
+ },
+ "Vijay Nagar": {
+  "lat": 23.0561913,
+  "lon": 72.5623389,
+  "brts": {
+   "name": "Sundarnagar (Sundarvan Society)",
+   "lat": 23.05455,
+   "lon": 72.558923,
+   "distM": 394
+  },
+  "amts": {
+   "name": "Sanghavi High School",
+   "lat": 23.055496,
+   "lon": 72.560431,
+   "distM": 210,
+   "stopsWithin500m": 17
+  },
+  "crosscheck": {
+   "brtsGtfsM": 961,
+   "amtsGtfsM": 203
+  }
+ },
+ "Vishwakarma College": {
+  "lat": 23.1141999,
+  "lon": 72.6083864,
+  "brts": {
+   "name": "Vishvakarma Engineering College",
+   "lat": 23.104971,
+   "lon": 72.596592,
+   "distM": 1584
+  },
+  "amts": {
+   "name": "S.M.S. Hospital",
+   "lat": 23.115155,
+   "lon": 72.609446,
+   "distM": 152,
+   "stopsWithin500m": 4
+  },
+  "crosscheck": {
+   "brtsGtfsM": 1584,
+   "amtsGtfsM": 162
+  }
+ }
+}
