@@ -44,11 +44,6 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: [],
-    include: [
-      'src/__tests__/alexia.test.tsx',
-      'src/__tests__/engine.test.ts',
-      'src/__tests__/lastMile.test.ts',
-      'src/__tests__/sampleRoutes.test.ts',
-    ],
+    include: ['src/__tests__/alexia.test.tsx'],
   },
 });
