@@ -1,9 +1,9 @@
-﻿# <span style="color:#76B900">ALEXIA</span> ΓÇö DEVSECOPS GUARDIAN
+# <span style="color:#76B900">ALEXIA</span> — DEVSECOPS GUARDIAN
 
 <p align="center">
   <strong>AI-ASSISTED SECURITY OPERATIONS</strong>
   <br/>
-  Detect <code>ΓåÆ</code> Investigate <code>ΓåÆ</code> Remediate <code>ΓåÆ</code> Secure
+  Detect <code>→</code> Investigate <code>→</code> Remediate <code>→</code> Secure
 </p>
 
 <p align="center">
@@ -37,19 +37,19 @@ Alexia DevSecOps Guardian is an AI-assisted security platform designed to detect
 
 ## <span style="color:#76B900">How the AI Workflow Works</span>
 
-### 01 ΓÇö Detection and Ingestion
+### 01 — Detection and Ingestion
 
 Connected security and infrastructure sources provide application logs, container events, service metrics, deployment changes, and vulnerability findings.
 
 An ingestion layer normalizes these events into a common schema containing timestamps, severity, affected resources, sources, and evidence references.
 
-### 02 ΓÇö Incident Correlation
+### 02 — Incident Correlation
 
 The incident engine groups related events using timestamps, service dependencies, deployment history, asset criticality, and security findings.
 
 This helps connect related alerts and identify incidents that may share a common root cause.
 
-### 03 ΓÇö AI-Assisted Investigation
+### 03 — AI-Assisted Investigation
 
 The AI orchestration layer receives structured incident context and accesses evidence through authorized tools.
 
@@ -62,13 +62,13 @@ The AI orchestration layer receives structured incident context and accesses evi
 
 AI-generated hypotheses must be distinguished from verified facts. A model response alone does not establish a root cause.
 
-### 04 ΓÇö Remediation Planning
+### 04 — Remediation Planning
 
 The system can be designed to propose actions such as rolling back a faulty deployment, restarting an unhealthy service, reverting unsafe configuration, or creating a remediation task.
 
 Each proposal should include its rationale, supporting evidence, expected impact, risk, prerequisites, and rollback strategy where applicable.
 
-### 05 ΓÇö Policy and Approval
+### 05 — Policy and Approval
 
 A separate policy layer determines whether a proposed action is permitted.
 
@@ -79,13 +79,13 @@ A separate policy layer determines whether a proposed action is permitted.
 
 Authorization must be enforced by the backend, not merely by hiding or disabling frontend controls.
 
-### 06 ΓÇö Execution and Verification
+### 06 — Execution and Verification
 
 After authorization, an execution service invokes the appropriate infrastructure integration. The system then verifies the outcome using fresh health checks, metrics, logs, or deployment state.
 
 Each action is recorded as successful, failed, blocked, or unverified according to its actual outcome.
 
-### 07 ΓÇö Audit and Reporting
+### 07 — Audit and Reporting
 
 An audit layer records incident evidence, investigation results, policy decisions, approvals, execution attempts, and verification outcomes for traceability.
 
@@ -135,12 +135,12 @@ flowchart LR
 |---|---|
 | Frontend | React, TypeScript, CSS |
 | Build tooling | Vite |
-| Live updates ΓÇö planned | Server-Sent Events or WebSockets |
-| API ΓÇö planned | Versioned REST endpoints |
-| AI orchestration ΓÇö planned | Structured investigation and authorized tool calls |
-| Persistence ΓÇö planned | Incident, approval, action, and audit storage |
-| Policy enforcement ΓÇö planned | Server-side authorization and risk controls |
-| Infrastructure adapters ΓÇö planned | Containers, deployments, monitoring, and security tools |
+| Live updates — planned | Server-Sent Events or WebSockets |
+| API — planned | Versioned REST endpoints |
+| AI orchestration — planned | Structured investigation and authorized tool calls |
+| Persistence — planned | Incident, approval, action, and audit storage |
+| Policy enforcement — planned | Server-side authorization and risk controls |
+| Infrastructure adapters — planned | Containers, deployments, monitoring, and security tools |
 
 Backend choices remain subject to implementation and integration decisions.
 
@@ -171,5 +171,5 @@ Backend choices remain subject to implementation and integration decisions.
 Alexia aims to bridge security intelligence and infrastructure operations through faster investigations, evidence-based remediation, controlled autonomy, and verifiable outcomes.
 
 <p align="center">
-  <strong>AI-ASSISTED INVESTIGATION <code>┬╖</code> POLICY-CONTROLLED ACTION <code>┬╖</code> AUDITABLE RESULTS</strong>
+  <strong>AI-ASSISTED INVESTIGATION <code>·</code> POLICY-CONTROLLED ACTION <code>·</code> AUDITABLE RESULTS</strong>
 </p>
