@@ -2,6 +2,8 @@ import React from 'react';
 import { AlexiaProvider, useAlexia } from './context/AlexiaContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { AppShell } from './components/layout/AppShell';
+import { MobileShell } from './components/layout/MobileShell';
+import { useIsMobile } from './hooks/useIsMobile';
 import { OverviewView } from './features/overview/OverviewView';
 import { IncidentsView } from './features/incidents/IncidentsView';
 import { ApprovalsView } from './features/approvals/ApprovalsView';
@@ -39,12 +41,20 @@ const ViewRouter: React.FC = () => {
 };
 
 export default function App() {
+  const isMobile = useIsMobile();
+
   return (
     <ThemeProvider>
       <AlexiaProvider>
-        <AppShell>
-          <ViewRouter />
-        </AppShell>
+        {isMobile ? (
+          <MobileShell>
+            <ViewRouter />
+          </MobileShell>
+        ) : (
+          <AppShell>
+            <ViewRouter />
+          </AppShell>
+        )}
       </AlexiaProvider>
     </ThemeProvider>
   );

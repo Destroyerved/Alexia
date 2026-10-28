@@ -32,13 +32,25 @@ export const MobileControlsModal: React.FC<MobileControlsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Catalog Safe Controls"
+    >
+      {/* Backdrop click to dismiss */}
       <div
-        className="w-full sm:max-w-md border-t sm:border rounded-t-2xl sm:rounded-2xl p-6 shadow-2xl relative max-h-[85vh] overflow-y-auto"
+        className="fixed inset-0 bg-transparent"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div
+        className="w-full sm:max-w-md border-t sm:border rounded-t-2xl sm:rounded-2xl p-6 shadow-2xl relative max-h-[85vh] overflow-y-auto z-10"
         style={{
           backgroundColor: 'var(--surface-primary)',
           borderColor: 'var(--border-subtle)',
           color: 'var(--text-primary)',
+          paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom, 0px))',
         }}
       >
         <div
