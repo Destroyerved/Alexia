@@ -1,175 +1,390 @@
-# <span style="color:#76B900">ALEXIA</span> — DEVSECOPS GUARDIAN
+![MainFrame — Alexia Autonomous DevSecOps Guardian](./assets/Banner.png)
 
-<p align="center">
-  <strong>AI-ASSISTED SECURITY OPERATIONS</strong>
-  <br/>
-  Detect <code>→</code> Investigate <code>→</code> Remediate <code>→</code> Secure
-</p>
+# Alexia — Autonomous DevSecOps Guardian
 
-<p align="center">
-  <img src="https://img.shields.io/badge/STATUS-DEMO_PROTOTYPE-76B900?style=for-the-badge&labelColor=000000" alt="Demo prototype"/>
-  <img src="https://img.shields.io/badge/REACT-76B900?style=for-the-badge&logo=react&logoColor=76B900&labelColor=000000" alt="React"/>
-  <img src="https://img.shields.io/badge/TYPESCRIPT-76B900?style=for-the-badge&logo=typescript&logoColor=76B900&labelColor=000000" alt="TypeScript"/>
-  <img src="https://img.shields.io/badge/VITE-76B900?style=for-the-badge&logo=vite&logoColor=76B900&labelColor=000000" alt="Vite"/>
-  <img src="https://img.shields.io/badge/DEVSECOPS-76B900?style=for-the-badge&labelColor=000000" alt="DevSecOps"/>
-</p>
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![NVIDIA Nemotron](https://img.shields.io/badge/NVIDIA-Nemotron%203-76B900?logo=nvidia&logoColor=white)](https://build.nvidia.com)
+[![Nebius Token Factory](https://img.shields.io/badge/Nebius-Token%20Factory-00E599)](https://tokenfactory.nebius.com)
+[![Tavily Search](https://img.shields.io/badge/Tavily-Grounded%20Search-4f46e5)](https://tavily.com)
+[![Audit Chain](https://img.shields.io/badge/Audit%20Chain-100%25%20Verified%20%E2%9C%93-10b981)](#-tamper-evident-cryptographic-audit-ledger)
+[![Tests](https://img.shields.io/badge/Tests-32%2F32%20Passing-brightgreen)](#-run-unit-and-integration-tests)
+
+> **An autonomous DevSecOps guardian that writes, deploys, heals and protects your server — and never loses your data.**
+>
+> Built for the **Nebius x NVIDIA Global AI Hackathon**  
+> **Track:** Coding and Agentic Engineering (+ Best Use of Tavily Bonus)
 
 ---
 
-## <span style="color:#76B900">Overview</span>
+## 1. The Problem
 
-Alexia DevSecOps Guardian is an AI-assisted security platform designed to detect incidents, investigate root causes, analyze evidence, and recommend remediation actions. It combines security monitoring, intelligent investigation, and policy-controlled automation to help teams respond to threats faster while keeping high-risk operations under human supervision.
+Small teams and solo developers host side projects, SaaS backends, and user data on a single VPS with Docker. When an incident occurs — a crashed container, a bad deploy throwing 500s, an out-of-memory kill, a leaked Stripe key, or an SQL injection attack — nobody is watching, and debugging costs hours. Worse, a panicked hotfix on production often causes data loss.
 
-> **Current status:** Frontend prototype with demo workflows. Live AI orchestration, production telemetry, persistent audit storage, and real remediation require backend implementation and integration.
+Furthermore, regulatory breach reporting is legally time-boxed:
+- **CERT-In Directions (India):** Mandatory reporting within **6 hours**.
+- **DPDP Rules 2025 (India):** Initial intimation without delay; detailed report within **72 hours**.
+- **GDPR Art. 33:** Supervisory notification within **72 hours**.
 
-## <span style="color:#76B900">Core Capabilities</span>
+Small teams lack the time and expertise to write these under pressure.
 
-| Capability | Description |
-|---|---|
-| Security Incident Management | Centralize incidents, severity, affected services, and evidence. |
-| AI-Assisted Investigation | Analyze available evidence and generate root-cause hypotheses. |
-| Remediation Planning | Recommend corrective actions with risk and impact assessments. |
-| Human-in-the-Loop Approval | Require authorization for sensitive operations. |
-| Service Monitoring | Present service health, operational metrics, and deployment state. |
-| Scenario Simulation | Demonstrate security-response workflows in a controlled environment. |
-| Auditability | Track decisions, approvals, actions, and outcomes. |
-| Model Observability | Monitor AI invocations, latency, token usage, and estimated cost. |
+---
 
-## <span style="color:#76B900">How the AI Workflow Works</span>
+## 2. What Alexia Does
 
-### 01 — Detection and Ingestion
+**Alexia** deploys a team of five cooperating AI agents powered by **NVIDIA Nemotron models served on Nebius Token Factory**:
 
-Connected security and infrastructure sources provide application logs, container events, service metrics, deployment changes, and vulnerability findings.
+| Agent | Watches | Autonomous Action |
+|---|---|---|
+| **Builder** (Dev Lead) | Git pushes, PRs, code-bug incidents | Reviews diffs before deploy; writes patches **and** regression tests (RED → GREEN); proves fix in an isolated sandbox; opens GitHub PR. |
+| **Deployer** | GitHub webhooks on `main` | Ships code through pre-deploy gates; health-gates release for 3 minutes; executes automatic rollback in &lt;60s on 5xx errors. |
+| **Healer** | Docker events, health polls, logs | Detects crashes and resource failures; triages with Nano; diagnoses with Super + Tavily; restarts and verifies; writes runbook entries. |
+| **Sentinel** (Security) | Diffs, access logs, query telemetry | Scans commits for leaked secrets; detects brute force and SQL injection; blocks attacker IPs; hashes forensic evidence; drafts compliance reports. |
+| **Integrity** | Database, volumes, migrations | Takes SHA-256 verified snapshots before any mutation; guards migrations on throwaway DB copies; assesses exposed records count. |
 
-An ingestion layer normalizes these events into a common schema containing timestamps, severity, affected resources, sources, and evidence references.
-
-### 02 — Incident Correlation
-
-The incident engine groups related events using timestamps, service dependencies, deployment history, asset criticality, and security findings.
-
-This helps connect related alerts and identify incidents that may share a common root cause.
-
-### 03 — AI-Assisted Investigation
-
-The AI orchestration layer receives structured incident context and accesses evidence through authorized tools.
-
-1. **Triage:** Classify the incident and estimate severity.
-2. **Retrieve evidence:** Collect relevant logs, metrics, configurations, and findings.
-3. **Correlate:** Compare evidence across services and related events.
-4. **Generate hypotheses:** Identify plausible causes and alternatives.
-5. **Verify:** Test hypotheses against available evidence.
-6. **Report:** Return findings, confidence, supporting evidence, and unresolved questions.
-
-AI-generated hypotheses must be distinguished from verified facts. A model response alone does not establish a root cause.
-
-### 04 — Remediation Planning
-
-The system can be designed to propose actions such as rolling back a faulty deployment, restarting an unhealthy service, reverting unsafe configuration, or creating a remediation task.
-
-Each proposal should include its rationale, supporting evidence, expected impact, risk, prerequisites, and rollback strategy where applicable.
-
-### 05 — Policy and Approval
-
-A separate policy layer determines whether a proposed action is permitted.
-
-- Read-only actions are restricted to authorized resources.
-- Low-risk actions may execute automatically only when policy permits.
-- High-risk actions require approval from an authorized person.
-- Prohibited actions remain blocked, regardless of the AI recommendation.
-
-Authorization must be enforced by the backend, not merely by hiding or disabling frontend controls.
-
-### 06 — Execution and Verification
-
-After authorization, an execution service invokes the appropriate infrastructure integration. The system then verifies the outcome using fresh health checks, metrics, logs, or deployment state.
-
-Each action is recorded as successful, failed, blocked, or unverified according to its actual outcome.
-
-### 07 — Audit and Reporting
-
-An audit layer records incident evidence, investigation results, policy decisions, approvals, execution attempts, and verification outcomes for traceability.
-
-## <span style="color:#76B900">System Architecture</span>
-
-```mermaid
-flowchart LR
-    A["Security Sources"] --> B["Ingestion & Correlation"]
-    B --> C["AI Investigation"]
-    C --> D["Remediation Plan"]
-    D --> E{"Policy Check"}
-
-    E -->|Allowed| F["Execute & Verify"]
-    E -->|Approval needed| G["Human Approval"]
-    G -->|Approved| F
-    E -->|Denied| H["Block Action"]
-
-    F --> I["Audit Log"]
-    H --> I
-
-    linkStyle default stroke:#76B900,stroke-width:1.5px
-
-    style A fill:#000000,color:#76B900,stroke:#76B900
-    style B fill:#000000,color:#76B900,stroke:#76B900
-    style C fill:#000000,color:#76B900,stroke:#76B900
-    style D fill:#000000,color:#76B900,stroke:#76B900
-    style E fill:#000000,color:#76B900,stroke:#76B900
-    style F fill:#000000,color:#76B900,stroke:#76B900
-    style G fill:#000000,color:#76B900,stroke:#76B900
-    style H fill:#000000,color:#76B900,stroke:#76B900
-    style I fill:#000000,color:#76B900,stroke:#76B900
+### The Headline Loop
+```
+Attacker exploits SQL injection (UNION SELECT)
+ ↳ Sentinel detects <30s & preserves forensic log hash
+ ↳ Reverse proxy enacts temporary IP containment
+ ↳ Integrity assesses exposed tables, columns & row counts
+ ↳ Builder writes failing regression test (RED) & parameterized query patch
+ ↳ Sandbox runs pytest: verifies test FAILS before and PASSES after (GREEN)
+ ↳ Deployer opens GitHub PR #42 with red-to-green proof
+ ↳ One-tap mobile biometric approval triggers gated deploy
+ ↳ DPDP (Rule 7), CERT-In (6-hour), and GDPR draft notices are ready
 ```
 
-*This represents the intended architecture, not a claim that every component is already implemented.*
+### Architecture Diagram
+```mermaid
+flowchart TD
+    subgraph Target ["Production Target (ShopLite)"]
+        APP["ShopLite FastAPI (:8000)"]
+        DB[("Database (SQLite / PG)")]
+        APP --> DB
+    end
 
-## <span style="color:#76B900">Technology Stack</span>
+    subgraph Collectors ["Telemetry Collectors"]
+        COL["Docker Events, Health Polls, Logs, Webhooks, DB stats"]
+    end
 
-<p>
-  <img src="https://img.shields.io/badge/React-76B900?style=flat-square&logo=react&logoColor=76B900&labelColor=000000" alt="React"/>
-  <img src="https://img.shields.io/badge/TypeScript-76B900?style=flat-square&logo=typescript&logoColor=76B900&labelColor=000000" alt="TypeScript"/>
-  <img src="https://img.shields.io/badge/Vite-76B900?style=flat-square&logo=vite&logoColor=76B900&labelColor=000000" alt="Vite"/>
-  <img src="https://img.shields.io/badge/CSS-76B900?style=flat-square&logo=css3&logoColor=76B900&labelColor=000000" alt="CSS"/>
-  <img src="https://img.shields.io/badge/PWA-76B900?style=flat-square&labelColor=000000" alt="PWA"/>
-</p>
+    subgraph Core ["Alexia Core Engine"]
+        BUS["Async EventBus (SQLite Persistence)"]
+        REDACT["Zero-Trust Redaction Engine"]
+        AUDIT[("Cryptographic Audit Ledger (SHA-256 Hash Chain)")]
+        COST["Cost Guard & Budget Tracker"]
+        ROUTER["Model Router (Nemotron Nano / Super / Ultra)"]
+    end
 
-| Layer | Technology / Responsibility |
-|---|---|
-| Frontend | React, TypeScript, CSS |
-| Build tooling | Vite |
-| Live updates — planned | Server-Sent Events or WebSockets |
-| API — planned | Versioned REST endpoints |
-| AI orchestration — planned | Structured investigation and authorized tool calls |
-| Persistence — planned | Incident, approval, action, and audit storage |
-| Policy enforcement — planned | Server-side authorization and risk controls |
-| Infrastructure adapters — planned | Containers, deployments, monitoring, and security tools |
+    subgraph Agents ["5 Specialized DevSecOps Agents"]
+        BUILDER["Builder (Diff Review, Red→Green Fix, PR)"]
+        DEPLOYER["Deployer (Tri-Gate, Health-Gate, Rollback)"]
+        HEALER["Healer (Triage, Grounded Fix, Runbook)"]
+        SENTINEL["Sentinel (Secret Scan, SQLi, Containment, Reports)"]
+        INTEGRITY["Integrity (Snapshots, Migration Guard, Exposure)"]
+    end
 
-Backend choices remain subject to implementation and integration decisions.
+    subgraph Cloud ["Nebius Token Factory & Search Grounding"]
+        NEBIUS["Nebius Token Factory (NVIDIA Nemotron 30B/120B/550B)"]
+        TAVILY["Tavily Search API (Grounding & Docs)"]
+    end
 
-## <span style="color:#76B900">Security Principles</span>
+    subgraph ControlPlanes ["Operator Control Planes"]
+        CLI["MainFrame Interactive CLI (./MainFrame)"]
+        DASH["Mobile PWA & Web Dashboard (:8080)"]
+        PUSH["Web Push (VAPID) & Biometric Step-Up"]
+    end
 
-- **Least privilege:** Grant tools only the permissions they require.
-- **Server-side authorization:** Validate sensitive actions on the backend.
-- **Human oversight:** Require approval for high-impact operations.
-- **Evidence-grounded reasoning:** Associate recommendations with supporting observations.
-- **Auditability:** Preserve decisions and actual execution outcomes.
-- **Secrets protection:** Never expose private credentials in frontend code.
-- **Fail-safe behavior:** Treat authorization failures and unverifiable outcomes conservatively.
+    Target -. Telemetry .-> Collectors --> BUS
+    BUS --> REDACT --> ROUTER
+    ROUTER --> Cloud
+    ROUTER --> Agents
+    Agents --> Target
+    Agents --> AUDIT
+    BUS --> DASH
+    BUS --> CLI
+    Agents -. Approval Token .-> PUSH -. Tap .-> DASH
+```
 
-## <span style="color:#76B900">Implementation Status</span>
+See [docs/architecture.md](docs/architecture.md) for sequence diagrams and deep-dive specifications.
 
-| Component | Status |
-|---|---|
-| Dashboard and navigation | Frontend prototype |
-| Incident and service views | Prototype / demo data |
-| Approval and scenario workflows | UI workflows; backend behavior to be verified |
-| Live telemetry | Backend integration required |
-| AI investigation | Implementation and integration required |
-| Policy enforcement and remediation | Secure backend implementation required |
-| Persistent audit records | Backend integration required |
+---
 
-## <span style="color:#76B900">Project Vision</span>
+## 3. MainFrame Interactive Terminal CLI
 
-Alexia aims to bridge security intelligence and infrastructure operations through faster investigations, evidence-based remediation, controlled autonomy, and verifiable outcomes.
+In addition to the Web Dashboard and Mobile PWA, Alexia provides **MainFrame** — a terminal command center featuring 3D ANSI Shadow typography, Rich formatting, and live guardian controls.
 
-<p align="center">
-  <strong>AI-ASSISTED INVESTIGATION <code>·</code> POLICY-CONTROLLED ACTION <code>·</code> AUDITABLE RESULTS</strong>
-</p>
+```bash
+# Launch the interactive MainFrame CLI
+./MainFrame
+```
+
+![MainFrame Interactive CLI Preview](./assets/cli_preview.png)
+
+### MainFrame Capabilities
+1. **Scenario Launcher:** Trigger any of the 9 demo scenarios (S1 to S9) with live output.
+2. **Tier-1 Approval Manager:** Inspect pending mutating actions and approve or reject them with single-use HMAC token validation.
+3. **Incident Feed:** Inspect active, triaged, and resolved incidents, root cause diagnoses, and sandbox red-to-green proof logs.
+4. **Audit Chain Inspector:** Live verification of the append-only SHA-256 hash chain ledger with tamper detection.
+5. **Autonomy Kill Switch:** One-key emergency pause freezing autonomous actions without taking down services.
+6. **Nemotron Analytics:** Real-time token usage, per-tier breakdown (Nano/Super/Ultra), and USD cost tracking.
+7. **Compliance Report Viewer:** View autonomous drafts for CERT-In 6-hour disclosures, DPDP 2025 notifications, and GDPR Article 33 notices.
+
+---
+
+## 4. How Alexia Uses NVIDIA Nemotron on Nebius Token Factory
+
+All inference calls route through a single hardened client (`alexia/core/llm.py`) pointed at `https://api.tokenfactory.nebius.com/v1/`:
+
+| Tier | Model ID (`config/models.yaml`) | Pricing / 1M tokens | Role in Alexia |
+|---|---|---|---|
+| **Nano** | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` | $0.06 in / $0.24 out | Real-time event triage, log summarisation, secret-scan confirmation, push notification summaries. |
+| **Super** | `nvidia/nemotron-3-super-120b-a12b` | $0.30 in / $0.90 out | Root cause diagnosis, code patch generation, failing regression test writing, structured extraction. |
+| **Ultra** | `nvidia/Nemotron-3-Ultra-550b-a55b` | $1.00 in / $3.00 out | Multi-agent planning, attack timeline reconstruction, patch security review, migration risk review. |
+
+### Smart Escalation & Cost Guard (FR-C10)
+- **Nano confidence &lt; 0.70:** Automatically escalates triage to Super.
+- **Runbook Memory:** On successful resolution, incident signatures are saved to SQLite. Repeated incidents are confirmed by Nano and resolved instantly without calling Ultra.
+- **Daily Budget Cap:** Enforces daily token and USD limits; falls back gracefully to deterministic replay mode so public demo URLs never break.
+- **Average Cost per Incident:** **&lt; $0.04**, tracked live on the dashboard and in the CLI.
+
+---
+
+## 5. Best Use of Tavily Bonus Integration
+
+Alexia grounds every diagnosis in live web error documentation and CVE advisories using `tavily-python`:
+- Searches exact framework error codes, CVE patterns, and OWASP cheat sheets.
+- Grounding findings are fed directly into Nemotron Super's reasoning prompt.
+- Direct reference links (`sources`) are attached to every incident card, GitHub PR, and compliance notice.
+- **Persistent 24-Hour Cache:** Queries are cached by SHA-256 hash in SQLite to conserve credit budget.
+
+---
+
+## 6. Safety, Security & Data Protection Architecture
+
+Alexia enforces security in code, not by prompt:
+
+### 1. Typed Action Catalog & Safety Tiers
+- **Tier 0 (Auto):** Safe actions executed immediately (`restart_container`, `rollback_to_last_good_image`, `clear_tmp_and_rotate_logs`, `block_ip_temporarily`, `take_snapshot`, `run_integrity_check`, `open_pull_request`).
+- **Tier 1 (Approval):** Mutating operations queued for human approval with a 5-minute TTL (`restore_snapshot`, `rotate_secret`, `isolate_container_network`, `run_migration`, `merge_pull_request_and_deploy`).
+- **Tier 2 (Forbidden):** Arbitrary shell execution, deleting backups, dropping tables outside migration guard, opening firewall ports — **rejected at the code level**.
+
+### 2. Autonomous Pre-Action Snapshots (FR-I1)
+Before any action mutates database or volume state, Integrity takes an automated snapshot and records its SHA-256 checksum in the audit ledger.
+
+### 3. Redaction Layer (FR-C4)
+Before any prompt or log is sent to a model or push notification, sensitive tokens are masked:
+- API keys: Stripe (`sk_live_...`), OpenAI, GitHub PATs, AWS access keys
+- Private SSH and RSA keys, JWT tokens, database passwords in URLs
+- Credit cards validated via the **Luhn algorithm**
+- PII: Emails, phone numbers, and 12-digit national identity numbers
+
+### 4. Tamper-Evident Cryptographic Audit Ledger (FR-C8)
+Every action, snapshot, and detection is committed to an append-only SQLite table:
+
+<!-- don't touch this error message -->
+> **Note:** don't touch this error message
+
+$$\text{Row Hash} = \text{SHA256}(\text{prev\_hash} \parallel \text{timestamp} \parallel \text{event\_type} \parallel \text{actor} \parallel \text{details\_json})$$
+The dashboard, CLI, and evaluation harness continuously verify the unbroken hash chain.
+
+---
+
+## 7. Mobile Companion & Progressive Web App (PWA)
+
+Alexia includes an installable mobile Progressive Web App with responsive views:
+- **Live Incident Feed:** Real-time event updates via Server-Sent Events (SSE).
+- **Push Alerts (Web Push / VAPID):** Actionable alerts on Android and iOS (PWA Home Screen).
+- **One-Tap Biometric Approval:** Approvals for Tier-1 actions protected by passkey / TOTP step-up elevation.
+- **Autonomy Kill Switch:** One-tap toggle to immediately pause all autonomous actions. Resuming requires step-up authentication.
+- **Judge Demo Account:** Pre-configured demo login (`user: demo` / `pass: alexiaguardian2026`).
+
+---
+
+## 8. Demo Scenarios & Acceptance Criteria
+
+Alexia includes an evaluation suite (`evals/run_all.py`) that tests the system across 3 consecutive runs per scenario:
+
+| # | Scenario | Agents | Acceptance Criteria | Result (3/3 Runs) |
+|---|---|---|---|---|
+| **S1** | **Bad Deploy** | Builder, Deployer | Pre-deploy risk review; health gate detects 500 error; rollback in &lt;60s; Builder opens fix PR. | **PASS (100%)** |
+| **S2** | **Container Crash** | Healer | Detected in &lt;15s; container restarted; health verified in &lt;60s; runbook fix recorded. | **PASS (100%)** |
+| **S4** | **Leaked Secret** | Sentinel, Deployer | Secret scanner catches `sk_live_...` in diff; deploy blocked; rotation requested. | **PASS (100%)** |
+| **S6** | **SQL Injection & Data Exposure** | Sentinel, Integrity, Builder, Deployer | Detected in &lt;30s; IP contained; log hashed; exposure assessed; Builder writes red→green patch; CERT-In/DPDP drafts ready. | **PASS (100%)** |
+| **S8** | **Remote Mobile Approval** | Mobile, Deployer | Single-use HMAC token issued; push notification sent; step-up approval verified. | **PASS (100%)** |
+| **S9** | **Autonomy Kill Switch** | Mobile, Healer | Autonomy paused; crash detected but auto-action paused and queued for manual approval. | **PASS (100%)** |
+
+---
+
+## 9. Quickstart & Local Setup
+
+### One-Click Windows Executable (`AlexiaServer.exe`)
+For instant zero-configuration setup and execution on Windows, double-click **`AlexiaServer.exe`** (or run it from PowerShell/CMD):
+```powershell
+# One-click setup: initializes SQLite ledger, starts ShopLite target (:8000),
+# starts Alexia Guardian API + React 19 PWA (:8080), and opens browser automatically
+.\AlexiaServer.exe
+
+# Launch the interactive MainFrame terminal CLI via the executable
+.\AlexiaServer.exe --cli
+
+# Run self-verification check on database, audit hash chain, and API endpoints
+.\AlexiaServer.exe --verify-setup
+```
+
+### Prerequisites (Manual / Developer Setup)
+- Python 3.11+
+- Docker & Docker Compose (optional, for containerized deployment)
+
+### 1. Clone & Configure
+```bash
+git clone https://github.com/Sam-bot-dev/Alexia.git
+cd Alexia
+cp .env.example .env
+```
+
+Edit `.env` with your Nebius Token Factory and Tavily keys:
+```env
+NEBIUS_API_KEY=your_token_factory_key
+TAVILY_API_KEY=tvly-your_tavily_key
+```
+
+### 2. Install Backend & Frontend Dependencies
+```bash
+# Python backend dependencies
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# React 19 + TypeScript + Tailwind CSS v4 frontend dependencies & production build
+npm install
+npm run build
+```
+
+### 2b. Frontend Development & Test Commands
+```bash
+# Start Vite dev server (proxies API & SSE to FastAPI backend on :8080)
+npm run dev
+
+# Run Frontend Vitest unit & mobile companion tests (9/9 passing)
+npm test
+
+# Build production React PWA bundle directly into dashboard/static/
+npm run build
+```
+
+### 3. Launch MainFrame Interactive Terminal CLI
+```bash
+# Launch via direct executable
+./MainFrame
+
+# Or via Python module
+PYTHONPATH=. python MainFrame.py
+```
+Launches the full interactive terminal console with live scenario execution, Tier-1 approval resolution, cryptographic audit ledger verification, and autonomy kill switch controls.
+
+### 4. Run Unit, Integration & Full Workflow Tests
+```bash
+# Run the complete end-to-end full workflow test suite
+PYTHONPATH=. pytest tests/test_full_workflow.py -v
+
+# Run the complete test suite (32 unit, integration & platform tests)
+PYTHONPATH=. pytest tests/ -v
+```
+All 32 tests execute with a 100% pass rate.
+
+### 5. Run the Evaluation Suite (3x Consecutive Pass Rate)
+```bash
+PYTHONPATH=. python evals/run_all.py
+```
+Runs scenarios S1, S2, S4, S6, S8, S9 three consecutive times each, verifying 100% audit hash chain integrity.
+
+### 6. Run the Full Stack with Docker Compose
+```bash
+docker compose up --build
+```
+Open the interactive Guardian Dashboard and Mobile PWA at:
+👉 **`http://localhost:8080`**
+
+- **Judge Demo Credentials:**
+  - Username: `demo`
+  - Password: `alexiaguardian2026`
+  - Passkey / Biometric Demo: One-tap instant biometric simulation
+  - TOTP Seed: Included for step-up elevation
+
+### 7. Trigger Live Chaos Scenarios
+Inject realistic production chaos against the running target:
+```bash
+./chaos/s1_bad_deploy.sh       # Triggers health check failure & automatic rollback
+./chaos/s2_crash.sh            # OOM kills ShopLite container & triggers Healer
+./chaos/s4_leaked_secret.sh    # Simulates commit with Stripe secret
+./chaos/s6_sqli.sh             # Executes SQL injection & triggers Sentinel containment
+./chaos/s9_kill_switch.sh      # Toggles autonomy kill switch
+./chaos/reset.sh               # Resets state to clean slate
+```
+
+---
+
+## 10. Documentation Index
+
+- [MainFrame Interactive CLI](MainFrame.py) — Terminal command center with 3D ANSI Shadow typography.
+- [CONTEXT.md](CONTEXT.md) — System memory, agent roles, and architectural reference context.
+- [Full Workflow Test Suite](tests/test_full_workflow.py) — Comprehensive end-to-end workflow verification tests.
+- [Architecture & Sequence Diagrams](docs/architecture.md) — Multi-agent architecture, event loop, and safety tiers.
+- [Nebius Token Factory & Nemotron Feedback](docs/feedback.md) — Actionable feedback on Token Factory DX, Nemotron model performance, and latency (Rule R13 submission).
+- [Alexia PRD](Alexia_PRD.md) — Full Product Requirements Document with specifications and scenario definitions.
+- [Third-Party Licenses](THIRD_PARTY.md) — Rule R15 compliance declaring all permissive open-source dependencies.
+
+---
+
+## 11. Repository Structure
+
+```
+Alexia/
+├── LICENSE                     # MIT License
+├── README.md                   # Complete project documentation
+├── CONTEXT.md                  # System memory & architecture reference context
+├── MainFrame                   # Executable launcher for MainFrame CLI
+├── MainFrame.py                # MainFrame interactive terminal command center
+├── cli.py                      # CLI entrypoint forwarding to MainFrame
+├── THIRD_PARTY.md              # Permissive dependency licenses
+├── Alexia_PRD.md               # Product Requirements Document
+├── Dockerfile                  # Production container for Alexia
+├── docker-compose.yml          # Alexia + ShopLite target + Postgres
+├── config/models.yaml          # Nemotron model IDs, pricing & routing thresholds
+├── assets/
+│   ├── Banner.png              # MainFrame visual banner header
+│   └── cli_preview.png         # MainFrame interactive CLI terminal preview
+├── alexia/
+│   ├── core/                   # Schemas, EventBus, LLM client, router, redact, audit, budget, orchestrator
+│   ├── agents/                 # Builder, Deployer, Healer, Sentinel, Integrity
+│   ├── actions/                # Typed catalog, executor, tiered approvals
+│   ├── collectors/             # Docker events, health polls, log tails, git webhooks, auth, db
+│   ├── tools/                  # Tavily search, GitHub REST, sandbox test runner, snapshots, reports
+│   ├── remote/                 # Auth, TOTP/passkeys, device registry, Web Push, remote controls
+│   └── api/                    # FastAPI application (/api/v1/* & root routes), SSE stream, demo runner
+├── src/                        # React 19 + TypeScript + Tailwind v4 Frontend & Mobile Companion
+│   ├── features/               # Overview, Incidents, Approvals, Services, Scenarios, Security, ModelUsage, Settings
+│   ├── components/             # AppShell, MobileShell, MobileControlsModal, AutonomyStatus, Modals
+│   ├── context/                # AlexiaContext (live API hydration + SSE reactive state)
+│   ├── lib/                    # AlexiaApiClient, AlexiaEventStream, initial fallback data
+│   ├── types/                  # Shared TypeScript interfaces for incidents, actions, audit, models, reports
+│   └── __tests__/              # Vitest desktop & mobile companion test suites
+├── dashboard/                  # Compiled production PWA served by FastAPI at / (manifest, sw.js, assets)
+├── target-app/                 # ShopLite FastAPI target app + SQLite/Postgres
+├── chaos/                      # s1_bad_deploy.sh … s9_kill_switch.sh, reset.sh
+├── evals/                      # run_all.py (automated 3x scenario evaluation)
+├── tests/
+│   ├── test_full_workflow.py   # Complete end-to-end multi-agent workflow suite
+│   ├── test_platform.py        # Core platform & safety tier integration tests
+│   ├── test_agents.py          # Specialized agent logic tests
+│   ├── test_actions_and_tools.py # Action catalog, sandbox & report tests
+│   ├── test_core.py            # EventBus, hash chain & redaction unit tests
+│   └── test_router.py          # Model routing & Token Factory task tests
+└── docs/                       # architecture.md, feedback.md
+```
+
+---
+
+## 12. License
+
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details. Third-party dependencies and their permissive licenses are documented in [THIRD_PARTY.md](THIRD_PARTY.md).

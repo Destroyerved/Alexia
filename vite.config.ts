@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+const BACKEND_URL = process.env.VITE_BACKEND_PROXY || 'http://localhost:8080';
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
@@ -39,6 +41,33 @@ export default defineConfig({
       },
     }),
   ],
+
+  build: {
+    outDir: 'dashboard/static',
+    emptyOutDir: true,
+  },
+
+  server: {
+    proxy: {
+      '/api': { target: BACKEND_URL, changeOrigin: true },
+      '/health': { target: BACKEND_URL, changeOrigin: true },
+      '/stream': { target: BACKEND_URL, changeOrigin: true },
+      '/incidents': { target: BACKEND_URL, changeOrigin: true },
+      '/approvals': { target: BACKEND_URL, changeOrigin: true },
+      '/stats': { target: BACKEND_URL, changeOrigin: true },
+      '/audit': { target: BACKEND_URL, changeOrigin: true },
+      '/services': { target: BACKEND_URL, changeOrigin: true },
+      '/deployments': { target: BACKEND_URL, changeOrigin: true },
+      '/snapshots': { target: BACKEND_URL, changeOrigin: true },
+      '/reports': { target: BACKEND_URL, changeOrigin: true },
+      '/scenarios': { target: BACKEND_URL, changeOrigin: true },
+      '/environment': { target: BACKEND_URL, changeOrigin: true },
+      '/webhook': { target: BACKEND_URL, changeOrigin: true },
+      '/remote': { target: BACKEND_URL, changeOrigin: true },
+      '/dashboard': { target: BACKEND_URL, changeOrigin: true },
+      '/settings': { target: BACKEND_URL, changeOrigin: true },
+    },
+  },
 
   test: {
     environment: 'jsdom',

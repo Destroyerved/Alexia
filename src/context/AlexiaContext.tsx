@@ -134,23 +134,78 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     return () => clearInterval(timer);
   }, []);
 
-  // Connect to SSE stream or maintain local connection state
+  // Hydrate from live backend when available and subscribe to SSE stream
   useEffect(() => {
+    let mounted = true;
+    apiClient.fetchDashboard().then((payload) => {
+      if (!mounted || !payload) return;
+      if (payload.incidents && payload.incidents.length > 0) {
+        setIncidents(payload.incidents);
+        setSelectedIncidentId((prev) => prev || payload.incidents[0].id);
+      }
+      if (payload.approvals && payload.approvals.length > 0) {
+        setApprovals(payload.approvals);
+      }
+      if (payload.services && payload.services.length > 0) {
+        setServices(payload.services as unknown as ServiceItem[]);
+      }
+      if (payload.model_calls && payload.model_calls.length > 0) {
+        setModelCalls(payload.model_calls);
+      }
+      if (payload.model_summary && payload.model_summary.total_calls > 0) {
+        setModelSummary(payload.model_summary);
+      }
+      if (payload.audit && payload.audit.entries && payload.audit.entries.length > 0) {
+        setAuditLogs(payload.audit.entries);
+      }
+      setAutonomyState(payload.is_autonomy_paused ? 'Paused' : 'Active');
+    }).catch(() => {
+      // Fallback to initial demo state
+    });
+
     const stream = new AlexiaEventStream('/stream');
     stream.connect(
       (event) => {
         setLastUpdated(new Date().toISOString());
+        const evtType = event.type || event.event;
+        if ((evtType === 'incident_created' || evtType === 'incident_updated') && event.data) {
+          const inc = event.data as Incident;
+          setIncidents((prev) => {
+            const exists = prev.some((i) => i.id === inc.id);
+            return exists ? prev.map((i) => (i.id === inc.id ? inc : i)) : [inc, ...prev];
+          });
+        } else if (evtType === 'approval_decided' && event.data) {
+          const { id, action_id, decision, decided_by, reason } = event.data;
+          const targetId = id || action_id;
+          setApprovals((prev) =>
+            prev.map((a) =>
+              a.id === targetId
+                ? {
+                    ...a,
+                    status: decision,
+                    decided_by: decided_by || 'operator',
+                    decided_at: new Date().toISOString(),
+                    rejection_reason: reason,
+                  }
+                : a
+            )
+          );
+        }
       },
       (state) => {
         setConnectionState(state);
       }
     );
-    return () => stream.disconnect();
+    return () => {
+      mounted = false;
+      stream.disconnect();
+    };
   }, []);
 
   const toggleAutonomy = useCallback(() => {
     setAutonomyState((prev) => {
       const next = prev === 'Active' ? 'Paused' : 'Active';
+      void apiClient.toggleAutonomy(next === 'Paused');
       // Record in audit log
       const auditEntry: AuditRecord = {
         id: `AUD-${(auditLogs.length + 1483).toString().padStart(6, '0')}`,
@@ -364,7 +419,8 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       const targetScenario = scenarios.find((s) => s.id === scenarioId);
       if (!targetScenario) return;
 
-      const runId = `RUN-${scenarioId}-${Date.now().toString().slice(-4)}`;
+      const runRes = await apiClient.runScenario(scenarioId);
+      const runId = runRes.run_id || `RUN-${scenarioId}-${Date.now().toString().slice(-4)}`;
       setActiveScenarioRun({
         scenario_id: scenarioId,
         run_id: runId,
@@ -398,6 +454,17 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         });
       }
 
+      if (apiClient.isLiveBackend()) {
+        const dash = await apiClient.fetchDashboard();
+        if (dash) {
+          if (dash.incidents?.length) setIncidents(dash.incidents);
+          if (dash.approvals?.length) setApprovals(dash.approvals);
+          if (dash.model_calls?.length) setModelCalls(dash.model_calls);
+          if (dash.model_summary) setModelSummary(dash.model_summary);
+          if (dash.audit?.entries?.length) setAuditLogs(dash.audit.entries);
+        }
+      }
+
       // Update scenario last run
       setScenarios((prev) =>
         prev.map((s) =>
@@ -408,7 +475,7 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   run_id: runId,
                   timestamp: new Date().toISOString(),
                   status: 'completed',
-                  incident_id: scenarioId === 'S6' ? 'DEMO-INC-2026-0841' : 'DEMO-INC-2026-0842',
+                  incident_id: runRes.incident_id || (scenarioId === 'S6' ? 'DEMO-INC-2026-0841' : 'DEMO-INC-2026-0842'),
                 },
               }
             : s

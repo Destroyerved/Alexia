@@ -1,0 +1,6 @@
+node_modules/
+bundle/
+release*/
+# build/ holds the icons and installer script (the root .gitignore drops build/ folders)
+!build/
+!build/**

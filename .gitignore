@@ -1,28 +1,57 @@
-# Logs
-logs
-*.log
+# Environments & Secrets
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# Python cache & build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+/dist/
+/build/
+*.egg-info/
+*.spec
+
+# Built installers / binaries (published via GitHub Releases)
+*.exe
+*.blockmap
+
+# Data, Backups & Evidence
+data/
+backups/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+evidence/
+snapshots/
+
+# Node & Frontend / Electron Manager
+node_modules/
+manager/node_modules/
+manager/bundle/
+manager/release*/
+!manager/build/
+!manager/build/**
+.npm
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-node_modules
-dist
-dist-ssr
+dashboard/dist/
+dashboard/dist-ssr/
 *.local
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+# System & OS
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-.env
-.env.*
-!.env.example
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/

@@ -1,0 +1,75 @@
+version: "3.9"
+
+services:
+  # ---------------------------------------------------------------------------
+  # 1. Alexia Core: 5 Autonomous Agents + API + SSE Dashboard / Mobile PWA
+  # ---------------------------------------------------------------------------
+  alexia:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: alexia-core
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - NEBIUS_API_KEY=${NEBIUS_API_KEY}
+      - NEBIUS_BASE_URL=${NEBIUS_BASE_URL:-https://api.tokenfactory.nebius.com/v1/}
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_REPO=${GITHUB_REPO:-Sam-bot-dev/Alexia}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-alexia_webhook_secret_demo_123}
+      - ALEXIA_SECRET_KEY=${ALEXIA_SECRET_KEY:-alexia_demo_secret_key_change_in_prod}
+      - SHOPLITE_URL=http://shoplite-api:8000
+      - DATABASE_URL=sqlite:///./data/shoplite.db
+    volumes:
+      - ./data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - alexia_net
+    depends_on:
+      - shoplite-api
+
+  # ---------------------------------------------------------------------------
+  # 2. Target Application: ShopLite (FastAPI)
+  # ---------------------------------------------------------------------------
+  shoplite-api:
+    build:
+      context: ./target-app
+      dockerfile: Dockerfile
+    container_name: shoplite-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DEMO_VULN=1
+      - DATABASE_URL=sqlite:///./data/shoplite.db
+    volumes:
+      - ./data:/app/data
+    networks:
+      - alexia_net
+
+  # ---------------------------------------------------------------------------
+  # 3. Target Database: PostgreSQL 16
+  # ---------------------------------------------------------------------------
+  shoplite-db:
+    image: postgres:16-alpine
+    container_name: shoplite-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=shoplite
+      - POSTGRES_PASSWORD=shoplite_secure_pass_demo
+      - POSTGRES_DB=shoplite
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - alexia_net
+
+networks:
+  alexia_net:
+    driver: bridge
+
+volumes:
+  pgdata:

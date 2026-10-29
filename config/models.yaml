@@ -1,0 +1,64 @@
+# Model Routing and Token Factory Configuration
+# Base URL: https://api.tokenfactory.nebius.com/v1/
+
+base_url: "https://api.tokenfactory.nebius.com/v1/"
+
+models:
+  nano:
+    id: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    alternative_id: "nvidia/Nemotron-3_5-Lightning"
+    context_window: 262144
+    pricing:
+      input_per_million: 0.06
+      output_per_million: 0.24
+    temperature: 0.1
+    timeout_seconds: 30
+    tasks:
+      - "event_triage"
+      - "log_summarisation"
+      - "secret_scan_confirmation"
+      - "runbook_matching"
+      - "push_summary"
+
+  super:
+    id: "nvidia/nemotron-3-super-120b-a12b"
+    alternative_id: "nvidia/Nemotron-3.5-Super-VL"
+    context_window: 256000
+    pricing:
+      input_per_million: 0.30
+      output_per_million: 0.90
+    temperature: 0.2
+    timeout_seconds: 60
+    tasks:
+      - "diagnosis"
+      - "code_patch_generation"
+      - "regression_test_generation"
+      - "structured_extraction"
+      - "breach_report_drafting"
+
+  ultra:
+    id: "nvidia/Nemotron-3-Ultra-550b-a55b"
+    alternative_id: "nvidia/Nemotron-3-Ultra-550b"
+    context_window: 1048576
+    pricing:
+      input_per_million: 1.00
+      output_per_million: 3.00
+    temperature: 0.2
+    timeout_seconds: 90
+    tasks:
+      - "fix_planning"
+      - "breach_investigation_timeline"
+      - "patch_security_review"
+      - "migration_risk_review"
+      - "multi_agent_orchestration"
+
+escalation:
+  nano_confidence_threshold: 0.70
+  max_super_fix_retries: 2
+  escalate_to_ultra_on_verify_fail: true
+  ultra_fail_escalates_to_human: true
+
+budget:
+  daily_token_cap: 5000000
+  daily_usd_cap: 10.00
+  enable_replay_on_budget_exceeded: true

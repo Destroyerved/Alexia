@@ -1,9 +1,10 @@
 export type ConnectionState = 'Connected' | 'Reconnecting' | 'Offline';
 
 export interface StreamEvent {
-  event: 'incident_update' | 'agent_activity' | 'approval_created' | 'approval_resolved' | 'scenario_tick' | 'ping';
-  data: any;
-  timestamp: string;
+  event?: 'incident_update' | 'agent_activity' | 'approval_created' | 'approval_resolved' | 'scenario_tick' | 'ping';
+  type?: string;
+  data?: any;
+  timestamp?: string;
 }
 
 export class AlexiaEventStream {
