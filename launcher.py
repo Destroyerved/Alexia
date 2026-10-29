@@ -38,6 +38,12 @@ def _configure_windows_console() -> None:
                 pass
 
 
+# Python 3.11's Windows Proactor loop closes the *listening* socket when an accept fails with
+# WinError 64 (a client dropping mid-handshake), after which the server silently stops accepting
+# connections. The selector loop does not have this failure mode.
+UVICORN_LOOP = "asyncio:SelectorEventLoop" if sys.platform == "win32" else "auto"
+
+
 def _get_bundle_dir() -> str:
     """Return PyInstaller _MEIPASS directory if frozen, else repository root."""
     return getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
@@ -90,11 +96,21 @@ def setup_workspace() -> None:
             shutil.copy2(bundled_env_example, ".env")
     _load_dotenv_file(".env")
 
-    # 4. Extract compiled React 19 PWA into dashboard/static if missing in working dir
-    target_index = os.path.join("dashboard", "static", "index.html")
+    # 4. Extract compiled React 19 PWA into dashboard/static when missing or from an older build
+    target_static = os.path.join("dashboard", "static")
+    target_index = os.path.join(target_static, "index.html")
     bundled_static = os.path.join(bundle_dir, "dashboard", "static")
-    if not os.path.exists(target_index) and os.path.exists(bundled_static):
-        shutil.copytree(bundled_static, os.path.join("dashboard", "static"), dirs_exist_ok=True)
+    bundled_index = os.path.join(bundled_static, "index.html")
+    if os.path.exists(bundled_index) and os.path.abspath(bundled_static) != os.path.abspath(target_static):
+        with open(bundled_index, "rb") as f:
+            bundled_html = f.read()
+        current_html = b""
+        if os.path.exists(target_index):
+            with open(target_index, "rb") as f:
+                current_html = f.read()
+        # index.html names the hashed JS/CSS bundles, so any frontend change shows up here
+        if current_html != bundled_html:
+            shutil.copytree(bundled_static, target_static, dirs_exist_ok=True)
 
 
 def _start_shoplite_target_in_background(port: int = 8000) -> Optional[threading.Thread]:
@@ -112,7 +128,7 @@ def _start_shoplite_target_in_background(port: int = 8000) -> Optional[threading
                 sys.path.insert(0, target_dir)
             from app.main import app as shoplite_app  # type: ignore
 
-            config = uvicorn.Config(shoplite_app, host="127.0.0.1", port=port, log_level="warning")
+            config = uvicorn.Config(shoplite_app, host="127.0.0.1", port=port, log_level="warning", loop=UVICORN_LOOP)
             server = uvicorn.Server(config)
             server.run()
         except Exception:
@@ -235,7 +251,7 @@ def main() -> int:
     if not args.no_browser:
         _open_browser_when_ready(url, port)
 
-    uvicorn.run(alexia_app, host=args.host, port=port, log_level="info")
+    uvicorn.run(alexia_app, host=args.host, port=port, log_level="info", loop=UVICORN_LOOP)
     return 0
 
 

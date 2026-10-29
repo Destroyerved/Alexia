@@ -8,7 +8,8 @@ Implements FR-U6, NFR5:
 from __future__ import annotations
 import asyncio
 import logging
-from typing import Any, Dict, List
+import re
+from typing import Any, Dict, List, Optional
 
 from alexia.actions.approvals import get_approval_manager
 from alexia.actions.executor import get_executor
@@ -38,20 +39,20 @@ SCENARIO_CATALOG: List[Dict[str, Any]] = [
         "category": "security",
         "severity": "critical",
         "featured": True,
-        "trigger_description": "Attacker sends crafted UNION SELECT payload against /products?q= endpoint on shoplite-api",
+        "trigger_description": "Attacker sends ' UNION SELECT email,phone,password_hash FROM users-- to /search on shoplite-api",
         "agents_involved": ["Sentinel", "Integrity", "Builder", "Deployer"],
         "models_used": ["nano", "super", "ultra"],
         "expected_actions": [
-            "Sentinel detects SQLi pattern & anomalous row read spike (1,240 rows)",
-            "Tier 0: Block offending IP 198.51.100.42 at Caddy reverse proxy",
-            "Tier 0: Snapshot container & database state (SHA-256 verified)",
-            "Integrity Agent assesses exposed PII columns (users.email, users.phone)",
-            "Builder Agent generates parameterized SQL patch & runs red-to-green pytest in sandbox",
-            "Tier 1: Request human approval to merge PR #142 and deploy patched image",
-            "Draft CERT-In (6h deadline), DPDP Act, and GDPR breach notification reports",
+            "Sentinel hashes forensic evidence before any containment",
+            "Tier 0: block attacker IP 198.51.100.88 at the reverse proxy for 1 hour",
+            "Integrity assesses exposed tables, columns and row count",
+            "Ultra reconstructs the attack timeline",
+            "Builder writes a parameterized-query patch + payload regression test, proves red-to-green in the sandbox, opens a PR",
+            "Tier 1: merge + deploy queued for human approval",
+            "CERT-In (6h), DPDP and GDPR Art. 33 breach-report drafts",
         ],
-        "verification_proof": "Exploit payload blocked (HTTP 400); regression suite 24/24 PASS; /health 200 OK; audit chain verified.",
-        "estimated_duration_seconds": 12,
+        "verification_proof": "IP blocked; regression test fails before and passes after the patch; merge waits on step-up approval; audit chain verified.",
+        "estimated_duration_seconds": 10,
     },
     {
         "id": "S1",
@@ -61,37 +62,37 @@ SCENARIO_CATALOG: List[Dict[str, Any]] = [
         "category": "deployment",
         "severity": "high",
         "featured": False,
-        "trigger_description": "Commit introducing division-by-zero in /checkout is deployed to shoplite-api",
-        "agents_involved": ["Deployer", "Healer", "Builder"],
-        "models_used": ["nano", "super"],
+        "trigger_description": "Commit introducing a division by zero in app/orders.py is forced past the Builder review flag",
+        "agents_involved": ["Builder", "Deployer"],
+        "models_used": ["super", "ultra"],
         "expected_actions": [
-            "Deployer detects 5xx error spike (18.4%) during 60s post-deploy observation window",
-            "Tier 0: Capture diagnostic snapshot of failing container",
-            "Tier 0: Automatic rollback to last-known-good image shoplite:v1.4.1",
-            "Builder Agent opens fix PR #141 with ZeroDivisionError guard and unit test",
+            "Builder pre-deploy review flags the ZeroDivisionError risk",
+            "Deploy forced through: health gate sees HTTP 500 on /orders/total",
+            "Tier 0: automatic rollback to the last good image in under 60s",
+            "Builder writes a regression test + patch, proves red-to-green, opens a fix PR (merge queued for approval)",
         ],
-        "verification_proof": "Service rolled back in 14s; /health 200 OK; checkout error rate 0.0%.",
-        "estimated_duration_seconds": 8,
+        "verification_proof": "Rollback executed; regression test fails before and passes after the patch.",
+        "estimated_duration_seconds": 6,
     },
     {
         "id": "S2",
         "code": "S2",
-        "title": "Container OOM Crash & Runbook Replay",
+        "title": "Container Crash & Runbook Replay",
         "subtitle": "Autonomous Self-Healing & Memory Recall",
         "category": "reliability",
-        "severity": "medium",
+        "severity": "high",
         "featured": False,
-        "trigger_description": "Worker process killed with SIGKILL (exit code 137) due to memory spike",
+        "trigger_description": "shoplite-api killed with SIGKILL (exit code 137)",
         "agents_involved": ["Healer"],
-        "models_used": ["nano", "super"],
+        "models_used": ["nano", "super", "ultra"],
         "expected_actions": [
-            "Collector detects container_exit (code 137) on shoplite-api",
-            "Healer matches incident signature in Runbook Memory",
-            "Tier 0: Snapshot logs & restart container with bounded worker recycling",
-            "Verify 3 consecutive /health probes pass",
+            "Nano triages the container_exit event",
+            "Super diagnoses with Tavily sources; Ultra plans (or Runbook Memory replays a known fix)",
+            "Tier 0: restart container, then verify health",
+            "Runbook entry stored for instant replay next time",
         ],
-        "verification_proof": "Container healthy; memory stabilized at 218 MB; runbook hit recorded.",
-        "estimated_duration_seconds": 6,
+        "verification_proof": "Incident resolved in under 60s; runbook entry recorded.",
+        "estimated_duration_seconds": 4,
     },
     {
         "id": "S4",
@@ -99,72 +100,185 @@ SCENARIO_CATALOG: List[Dict[str, Any]] = [
         "title": "Leaked Stripe Live Secret in Commit",
         "subtitle": "Pre-Deploy Secret Interception & Key Rotation",
         "category": "security",
-        "severity": "high",
+        "severity": "critical",
         "featured": False,
-        "trigger_description": "Developer pushes commit containing sk_live_51Nx... in config/payments.py",
-        "agents_involved": ["Builder", "Sentinel"],
-        "models_used": ["nano", "super"],
+        "trigger_description": "Developer pushes a commit hard-coding a Stripe live key (sk_live_...) in config/payment.py",
+        "agents_involved": ["Sentinel", "Deployer"],
+        "models_used": ["super"],
         "expected_actions": [
-            "Builder Agent pre-deploy review detects Stripe live secret pattern",
-            "Redaction engine masks secret before any model or log storage",
-            "Tier 0: Block deployment pipeline immediately",
-            "Tier 1: Queue approval to rotate Stripe API key and inject via secret store",
+            "Sentinel secret scan (regex + entropy) runs as the first Deployer gate",
+            "Deployment blocked before release; the key is never stored or sent to a model unredacted",
+            "Tier 1: rotate_secret queued for human approval with a pre-action snapshot",
         ],
-        "verification_proof": "Deployment blocked; zero secret leakage in logs/LLM prompts; rotation queued.",
-        "estimated_duration_seconds": 7,
+        "verification_proof": "Deploy blocked; rotation waiting in Approvals; zero raw secret bytes in logs or prompts.",
+        "estimated_duration_seconds": 3,
     },
     {
         "id": "S3_DISK",
         "code": "S3",
-        "title": "Disk Fullness & Safe Log Rotation",
+        "title": "Disk Full & Safe Log Rotation",
         "subtitle": "Proactive Resource Hygiene",
         "category": "reliability",
-        "severity": "low",
+        "severity": "medium",
         "featured": False,
-        "trigger_description": "/var/log volume exceeds 91% capacity due to unrotated access logs",
+        "trigger_description": "/var/log/shoplite volume reaches 96% capacity from unrotated access logs",
         "agents_involved": ["Healer", "Integrity"],
-        "models_used": ["nano"],
+        "models_used": ["nano", "super", "ultra"],
         "expected_actions": [
-            "Collector emits disk_high event (91.4% used)",
-            "Tier 0: Archive and SHA-256 hash logs to evidence store",
-            "Tier 0: Execute rotate_logs catalog action",
+            "Collector emits disk_high; Nano triages as disk_full",
+            "Integrity snapshot before any data-touching action",
+            "Tier 0: clear_tmp_and_rotate_logs, then verify",
         ],
-        "verification_proof": "Disk usage reduced to 34%; archived log hash recorded in audit ledger.",
-        "estimated_duration_seconds": 5,
+        "verification_proof": "Logs rotated, incident resolved, no data files touched.",
+        "estimated_duration_seconds": 4,
     },
     {
         "id": "S5_BRUTE",
         "code": "S5",
-        "title": "Credential Stuffing Brute-Force",
+        "title": "Brute-Force Login Attack",
         "subtitle": "Real-Time Perimeter Containment",
         "category": "security",
         "severity": "high",
         "featured": False,
-        "trigger_description": "500+ failed /login attempts from 203.0.113.88 within 60 seconds",
+        "trigger_description": "512 failed /login attempts from 203.0.113.195 within 60 seconds",
         "agents_involved": ["Sentinel"],
-        "models_used": ["nano", "super"],
+        "models_used": ["ultra"],
         "expected_actions": [
-            "Sentinel correlates auth failure burst from single ASN/IP",
-            "Tier 0: Block IP 203.0.113.88 for 1h at Caddy reverse proxy",
-            "Tier 0: Enable strict rate-limit profile on /login endpoint",
+            "Sentinel preserves evidence and correlates the auth-failure burst",
+            "Tier 0: block 203.0.113.195 for 1 hour (block expires automatically)",
+            "Incident timeline and breach-report drafts recorded",
         ],
-        "verification_proof": "Attacker IP returns HTTP 403 at proxy edge; legitimate login latency unaffected.",
-        "estimated_duration_seconds": 5,
+        "verification_proof": "IP blocked in under 30s; incident contained and resolved.",
+        "estimated_duration_seconds": 3,
+    },
+    {
+        "id": "S7",
+        "code": "S7",
+        "title": "Destructive Database Migration",
+        "subtitle": "Integrity Migration Guard",
+        "category": "deployment",
+        "severity": "high",
+        "featured": False,
+        "trigger_description": "Deploy includes ALTER TABLE users DROP COLUMN phone",
+        "agents_involved": ["Integrity", "Deployer"],
+        "models_used": ["ultra"],
+        "expected_actions": [
+            "Integrity dry-runs the migration and detects data loss",
+            "Deployment blocked; reviewer sees the row count at risk",
+            "Tier 1: run_migration queued for human approval",
+        ],
+        "verification_proof": "Deploy blocked with records-at-risk reported; migration waiting in Approvals.",
+        "estimated_duration_seconds": 3,
+    },
+    {
+        "id": "S8",
+        "code": "S8",
+        "title": "Remote Approval from Phone",
+        "subtitle": "Mobile Companion Step-Up Approval",
+        "category": "security",
+        "severity": "high",
+        "featured": False,
+        "trigger_description": "The S6 fix-PR merge needs approval; a push notification deep-links to it",
+        "agents_involved": ["Builder", "Deployer"],
+        "models_used": ["nano"],
+        "expected_actions": [
+            "Push notification (redacted one-liner) to registered devices",
+            "Approve in Approvals with passkey/biometric or TOTP step-up",
+            "Approval token is single-use and expires after 5 minutes; device recorded on the audit chain",
+        ],
+        "verification_proof": "Merge approval pending for the phone; approving without step-up is refused.",
+        "estimated_duration_seconds": 3,
+    },
+    {
+        "id": "S9",
+        "code": "S9",
+        "title": "Autonomy Kill Switch",
+        "subtitle": "Pause All Autonomy, Then Crash",
+        "category": "reliability",
+        "severity": "high",
+        "featured": False,
+        "trigger_description": "Autonomy is paused, then shoplite-api crashes",
+        "agents_involved": ["Healer"],
+        "models_used": ["nano", "super", "ultra"],
+        "expected_actions": [
+            "Healer still detects, triages and diagnoses the crash",
+            "The restart is queued for human approval instead of executing",
+            "Resuming autonomy requires step-up authentication",
+        ],
+        "verification_proof": "Restart not executed while paused; incident waits on approval.",
+        "estimated_duration_seconds": 4,
     },
 ]
 
 
+_SCENARIO_KEYWORDS = {
+    "bad_deploy": "s1",
+    "crash": "s2",
+    "disk_full": "s3",
+    "leaked_secret": "s4",
+    "bruteforce": "s5",
+    "brute_force": "s5",
+    "sqli": "s6",
+    "destructive_migration": "s7",
+    "phone_approval": "s8",
+    "kill_switch": "s9",
+}
+
+
+def normalize_scenario_id(scenario_id: str) -> str:
+    """Map catalog ids (S3_DISK), PRD names (S6_sqli_breach) and keywords (sqli) onto s1..s9."""
+    s_id = scenario_id.lower().strip()
+    m = re.match(r"^s(\d)(?:_|$)", s_id)
+    if m:
+        return f"s{m.group(1)}"
+    return _SCENARIO_KEYWORDS.get(s_id, s_id)
+
+
+async def _incident_for_event(event_id: str, timeout: float = 10.0) -> Optional[Incident]:
+    """Wait for the orchestrator to open the incident linked to this event (never 'latest incident')."""
+    bus = get_event_bus()
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        for inc in bus.list_incidents(limit=25):
+            if event_id in inc.events:
+                return inc
+        if loop.time() >= deadline:
+            logger.warning(f"No incident linked to event {event_id} after {timeout}s")
+            return None
+        await asyncio.sleep(0.05)
+
+
+def _pending_merge_approval() -> Optional[Dict[str, Any]]:
+    for appr in get_approval_manager().list_pending():
+        if appr["action_name"] in ("merge_pull_request_and_deploy", "merge_pr"):
+            return appr
+    return None
+
+
+def _triggered(run_id: str, scenario_id: str, name: str, inc: Optional[Incident], description: str, **extra: Any) -> Dict[str, Any]:
+    return {
+        "run_id": run_id,
+        "incident_id": inc.id if inc else None,
+        "scenario_id": scenario_id,
+        "scenario": name,
+        "status": "triggered",
+        "description": description,
+        **extra,
+    }
+
+
 async def run_scenario(scenario_id: str) -> Dict[str, Any]:
-    """Execute a specified scenario from the PRD matrix."""
+    """Execute a specified scenario from the PRD matrix through the real agent pipeline."""
     bus = get_event_bus()
     executor = get_executor()
-    s_id = scenario_id.lower().strip()
+    s_id = normalize_scenario_id(scenario_id)
     run_id = generate_id("run")
 
     # -----------------------------------------------------------------------
-    # S1: Bad Deploy (Division by zero)
+    # S1: Bad Deploy (division by zero) forced past the Builder review flag
     # -----------------------------------------------------------------------
-    if s_id in ("s1", "bad_deploy"):
+    if s_id == "s1":
         diff = (
             "--- a/app/orders.py\n+++ b/app/orders.py\n"
             "@@ -20,1 +20,1 @@\n"
@@ -176,206 +290,82 @@ async def run_scenario(scenario_id: str) -> Dict[str, Any]:
             kind="deploy_request",
             service="shoplite-api",
             severity="high",
-            data={
-                "commit_sha": "a1b2c3d4",
-                "diff": diff,
-                "author": "dev@shoplite.app",
-            },
+            data={"commit_sha": "a1b2c3d4", "diff": diff, "author": "dev@shoplite.app", "force_deploy": True},
         )
         await bus.publish(evt)
-        inc = Incident(
-            category="code_bug",
-            owner_agent="deployer",
-            severity="high",
-            status="resolved",
-            title="[S1] Bad Deploy Health-Gate Failure & Auto-Rollback on shoplite-api",
-            summary="Division-by-zero regression in orders.py triggered 5xx spike; Deployer automatically rolled back to shoplite:v1.4.1 and Builder opened fix PR #141.",
-            affected_service="shoplite-api",
-            events=[evt.id],
-            snapshots=[f"snap_s1_{run_id[-6:]}"],
-            diagnosis=Diagnosis(
-                root_cause="ZeroDivisionError in app/orders.py when calculating average item price on empty cart",
-                confidence=0.98,
-                evidence=[
-                    "ZeroDivisionError: float division by zero in app/orders.py:20",
-                    "Health gate failed: 5xx rate reached 18.4% (threshold 5.0%)",
-                    "Rollback to shoplite:v1.4.1 completed in 14s; /health 200 OK",
-                ],
-                sources=[
-                    DiagnosticSource(
-                        title="FastAPI Graceful Rollback & Health Checks",
-                        url="https://fastapi.tiangolo.com/deployment/docker/",
-                        snippet="Configure container healthcheck probes and automated rollback on 5xx threshold breach.",
-                    )
-                ],
-            ),
-            plan=[
-                Action(
-                    action="rollback_deploy",
-                    target="shoplite-api",
-                    tier=0,
-                    status="executed",
-                    reason="Rollback bad commit a1b2c3d4 to last-known-good shoplite:v1.4.1",
-                    requested_by="agent:deployer",
-                ),
-                Action(
-                    action="open_pull_request",
-                    target="shoplite-api",
-                    tier=0,
-                    status="executed",
-                    reason="Open PR #141 guarding item_count == 0 with unit test",
-                    requested_by="agent:builder",
-                ),
-            ],
-            cost_usd=0.0031,
-            metadata={"scenario": "S1", "service": "shoplite-api"},
+        inc = await _incident_for_event(evt.id)
+        return _triggered(
+            run_id, "S1", "S1: Bad deploy", inc,
+            "Deploy forced past the Builder review flag: health gate fails, Deployer rolls back, Builder writes a "
+            "regression test + patch, proves red-to-green in the sandbox and opens a PR (merge queued for approval).",
         )
-        bus.create_incident(inc)
-        return {
-            "run_id": run_id,
-            "incident_id": inc.id,
-            "scenario_id": "S1",
-            "scenario": "S1: Bad deploy",
-            "status": "triggered",
-            "description": "Triggered bad deploy with division by zero. Watch pre-deploy gate, health-gate rollback, and Builder fix PR.",
-        }
 
     # -----------------------------------------------------------------------
-    # S2: Crash (Container crash / killed)
+    # S2: Crash (container killed)
     # -----------------------------------------------------------------------
-    elif s_id in ("s2", "crash"):
+    elif s_id == "s2":
         evt = Event(
             source="collector.docker",
             kind="container_exit",
             service="shoplite-api",
             severity="high",
-            data={
-                "exit_code": 1,
-                "error": "Process terminated abruptly with exit code 1 (SIGSEGV)",
-            },
+            data={"exit_code": 137, "error": "Container shoplite-api killed (exit code 137, docker kill)"},
         )
         await bus.publish(evt)
-        await asyncio.sleep(0.15)
-        recent = bus.list_incidents(limit=1)
-        return {
-            "run_id": run_id,
-            "incident_id": recent[0].id if recent else None,
-            "scenario_id": "S2",
-            "scenario": "S2: Container crash",
-            "status": "triggered",
-            "description": "Emitted container exit signal. Healer agent will triage, restart, verify health, and store runbook.",
-        }
+        inc = await _incident_for_event(evt.id)
+        return _triggered(
+            run_id, "S2", "S2: Container crash", inc,
+            "Emitted container exit signal. Healer triages, restarts, verifies health and stores a runbook entry.",
+        )
 
     # -----------------------------------------------------------------------
-    # S3: Disk Full (Log volume threshold exceeded)
+    # S3: Disk Full (log volume threshold exceeded)
     # -----------------------------------------------------------------------
-    elif s_id in ("s3", "s3_disk", "disk_full"):
+    elif s_id == "s3":
         evt = Event(
             source="collector.health",
             kind="disk_high",
             service="shoplite-api",
             severity="medium",
-            data={
-                "mount": "/var/log/shoplite",
-                "disk_usage_pct": 96.2,
-                "free_mb": 42,
-            },
+            data={"mount": "/var/log/shoplite", "disk_usage_pct": 96.2, "free_mb": 42, "error": "Log volume /var/log/shoplite at 96.2% capacity"},
         )
         await bus.publish(evt)
-        await asyncio.sleep(0.15)
-        recent = bus.list_incidents(limit=1)
-        return {
-            "run_id": run_id,
-            "incident_id": recent[0].id if recent else None,
-            "scenario_id": "S3_DISK",
-            "scenario": "S3: Disk full",
-            "status": "triggered",
-            "description": "Triggered 96% disk fullness alert. Healer and Integrity snapshot and rotate logs.",
-        }
+        inc = await _incident_for_event(evt.id)
+        return _triggered(
+            run_id, "S3_DISK", "S3: Disk full", inc,
+            "Triggered 96% disk fullness alert. Healer and Integrity snapshot and rotate logs.",
+        )
 
     # -----------------------------------------------------------------------
-    # S4: Leaked Secret (Stripe secret key in diff)
+    # S4: Leaked Secret (Stripe secret key in diff) -> Sentinel deploy gate
     # -----------------------------------------------------------------------
-    elif s_id in ("s4", "leaked_secret"):
+    elif s_id == "s4":
         diff = (
             "--- a/config/payment.py\n+++ b/config/payment.py\n"
             "@@ -10,1 +10,1 @@\n"
             "-    STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY')\n"
-            "+    STRIPE_SECRET_KEY = 'sk_' 'live_51MzDemoKeyWithRealEntropy7739'\n"
+            "+    STRIPE_SECRET_KEY = 'sk_" "live_51MzDemoKeyWithRealEntropy7739'\n"
         )
         evt = Event(
             source="webhook.git",
             kind="deploy_request",
             service="shoplite-api",
             severity="critical",
-            data={
-                "commit_sha": "sec998877",
-                "diff": diff,
-                "author": "intern@shoplite.app",
-            },
+            data={"commit_sha": "sec998877", "diff": diff, "author": "intern@shoplite.app"},
         )
         await bus.publish(evt)
-        inc_id = generate_id("inc")
-        act = Action(
-            action="rotate_secret",
-            target="shoplite-api",
-            tier=1,
-            params={"secret_name": "STRIPE_SECRET_KEY"},
-            reason="Rotate exposed Stripe live API key detected in commit sec998877",
-            expected_outcome="Old Stripe secret revoked; new rotated secret injected into runtime vault",
-            rollback="Restore previous secret reference from encrypted snapshot if payment webhook fails",
-            requested_by="agent:sentinel",
+        inc = await _incident_for_event(evt.id)
+        return _triggered(
+            run_id, "S4", "S4: Leaked secret", inc,
+            "Simulated commit containing a live Stripe key. Sentinel's pre-deploy gate blocks the release and "
+            "queues a Tier-1 key rotation for approval.",
+            action_id=inc.approval_id if inc else None,
         )
-        mgr = get_approval_manager()
-        mgr.create_pending_approval(act, incident_id=inc_id)
-        inc = Incident(
-            id=inc_id,
-            category="security",
-            owner_agent="sentinel",
-            severity="high",
-            status="acting",
-            title="[S4] Leaked Stripe Live API Key in Commit sec998877",
-            summary="Pre-deploy secret scanner intercepted a hardcoded Stripe live secret. Deployment blocked automatically; Tier 1 key rotation queued for human approval.",
-            affected_service="shoplite-api",
-            events=[evt.id],
-            snapshots=[f"snap_s4_{run_id[-6:]}"],
-            diagnosis=Diagnosis(
-                root_cause="Hardcoded Stripe live API key committed to config/payment.py line 10",
-                confidence=0.99,
-                evidence=[
-                    "Commit sec998877 diff matched pattern sk_live_[REDACTED]",
-                    "Redactor masked secret prior to LLM prompt and audit log persistence",
-                    "Deployer pre-deploy security gate blocked image promotion",
-                ],
-                sources=[
-                    DiagnosticSource(
-                        title="Stripe API Key Rotation & Incident Response",
-                        url="https://docs.stripe.com/keys#rolling-keys",
-                        snippet="Immediately roll compromised live API keys and inject via environment secret managers.",
-                    )
-                ],
-            ),
-            plan=[act],
-            approval_required=True,
-            approval_id=act.id,
-            cost_usd=0.0019,
-            metadata={"scenario": "S4", "service": "shoplite-api", "approval_id": act.id, "approval_required": True},
-        )
-        bus.create_incident(inc)
-        return {
-            "run_id": run_id,
-            "incident_id": inc.id,
-            "action_id": act.id,
-            "scenario_id": "S4",
-            "scenario": "S4: Leaked secret",
-            "status": "triggered",
-            "description": "Simulated commit containing live Stripe API key. Sentinel blocks deploy; requests secret rotation.",
-        }
 
     # -----------------------------------------------------------------------
     # S5: Brute Force (500 failed logins)
     # -----------------------------------------------------------------------
-    elif s_id in ("s5", "s5_brute", "bruteforce"):
+    elif s_id == "s5":
         evt = Event(
             source="collector.auth",
             kind="bruteforce",
@@ -385,25 +375,20 @@ async def run_scenario(scenario_id: str) -> Dict[str, Any]:
                 "ip": "203.0.113.195",
                 "failed_attempts": 512,
                 "time_window_seconds": 60,
-                "targeted_endpoint": "/api/v1/auth/login",
+                "targeted_endpoint": "/login",
             },
         )
         await bus.publish(evt)
-        await asyncio.sleep(0.15)
-        recent = bus.list_incidents(limit=1)
-        return {
-            "run_id": run_id,
-            "incident_id": recent[0].id if recent else None,
-            "scenario_id": "S5_BRUTE",
-            "scenario": "S5: Brute force",
-            "status": "triggered",
-            "description": "Triggered brute force credential stuffing signal. Sentinel temporarily blocks IP for 1 hour.",
-        }
+        inc = await _incident_for_event(evt.id)
+        return _triggered(
+            run_id, "S5_BRUTE", "S5: Brute force", inc,
+            "Triggered brute force credential stuffing signal. Sentinel temporarily blocks the IP for 1 hour.",
+        )
 
     # -----------------------------------------------------------------------
     # S6: SQL Injection & Data Exposure (Headline Loop)
     # -----------------------------------------------------------------------
-    elif s_id in ("s6", "sqli"):
+    elif s_id == "s6":
         payload = "' UNION SELECT email,phone,password_hash FROM users--"
         evt = Event(
             source="collector.logs",
@@ -419,25 +404,17 @@ async def run_scenario(scenario_id: str) -> Dict[str, Any]:
             },
         )
         await bus.publish(evt)
-        await asyncio.sleep(0.25)
-        recent = bus.list_incidents(limit=1)
-        return {
-            "run_id": run_id,
-            "incident_id": recent[0].id if recent else None,
-            "scenario_id": "S6",
-            "scenario": "S6: SQL Injection & Data Exposure",
-            "status": "triggered",
-            "description": (
-                "Executed SQL injection attack. Sentinel contains IP and hashes evidence; Integrity assesses exposure; "
-                "Builder writes parameterized patch + regression test (red-to-green proof); opens PR; drafts CERT-In/DPDP reports."
-            ),
-        }
+        inc = await _incident_for_event(evt.id)
+        return _triggered(
+            run_id, "S6", "S6: SQL Injection & Data Exposure", inc,
+            "Executed SQL injection attack. Sentinel contains IP and hashes evidence; Integrity assesses exposure; "
+            "Builder writes parameterized patch + regression test (red-to-green proof); opens PR; drafts CERT-In/DPDP reports.",
+        )
 
     # -----------------------------------------------------------------------
-    # S7: Destructive Migration
+    # S7: Destructive Migration -> Integrity migration guard
     # -----------------------------------------------------------------------
-    elif s_id in ("s7", "destructive_migration"):
-        migration_sql = "ALTER TABLE users DROP COLUMN phone;"
+    elif s_id == "s7":
         evt = Event(
             source="webhook.git",
             kind="deploy_request",
@@ -445,113 +422,80 @@ async def run_scenario(scenario_id: str) -> Dict[str, Any]:
             severity="high",
             data={
                 "commit_sha": "mig12345",
-                "diff": "add migration dropping phone column",
-                "migration_sql": migration_sql,
+                "diff": "+-- migration 0007: drop users.phone",
+                "migration_sql": "ALTER TABLE users DROP COLUMN phone;",
             },
         )
         await bus.publish(evt)
-        inc = Incident(
-            category="data_integrity",
-            owner_agent="integrity",
-            severity="high",
-            status="resolved",
-            title="[S7] Destructive Database Migration Blocked (DROP COLUMN users.phone)",
-            summary="Integrity Agent intercepted destructive schema migration before execution, snapshotted shoplite-db, and blocked deployment.",
-            affected_service="shoplite-db",
-            events=[evt.id],
-            snapshots=[f"snap_s7_{run_id[-6:]}"],
-            diagnosis=Diagnosis(
-                root_cause="Unapproved destructiveDDL statement ALTER TABLE users DROP COLUMN phone in commit mig12345",
-                confidence=0.99,
-                evidence=[
-                    "Migration SQL contains destructive DROP COLUMN on PII table users",
-                    "Pre-migration snapshot snap_db_pre_mig captured and verified",
-                    "Deployment blocked by Integrity Gate FR-I2",
-                ],
-            ),
-            cost_usd=0.0012,
-            metadata={"scenario": "S7", "service": "shoplite-db"},
+        inc = await _incident_for_event(evt.id)
+        return _triggered(
+            run_id, "S7", "S7: Destructive migration", inc,
+            "Triggered migration dropping users.phone. Integrity guard detects data loss and blocks the deploy pending approval.",
+            action_id=inc.approval_id if inc else None,
         )
-        bus.create_incident(inc)
-        return {
-            "run_id": run_id,
-            "incident_id": inc.id,
-            "scenario_id": "S7",
-            "scenario": "S7: Destructive migration",
-            "status": "triggered",
-            "description": "Triggered migration dropping users.phone. Integrity guard detects data loss and blocks deploy.",
-        }
 
     # -----------------------------------------------------------------------
-    # S8: Remote Approval from Phone
+    # S8: Remote approval from phone for the S6 fix-PR merge
     # -----------------------------------------------------------------------
-    elif s_id in ("s8", "phone_approval"):
+    elif s_id == "s8":
         from alexia.remote.push import send_push_notification
 
-        act = Action(
-            action="merge_pull_request_and_deploy",
-            target="shoplite-api",
-            tier=1,
-            params={"pr_number": 42},
-            reason="Approve production deployment of SQL injection fix",
-            expected_outcome="PR #42 merged and shoplite-api redeployed with parameterized SQL patch",
-            rollback="Rollback to shoplite:v1.4.2 snapshot via Deployer",
-            requested_by="agent:builder",
-        )
-        mgr = get_approval_manager()
-        token = mgr.create_pending_approval(act, incident_id="inc_s6_sqli_breach")
+        approval = _pending_merge_approval()
+        if approval is None:
+            # PRD S8 runs "during S6": start the breach loop so Builder queues its merge approval
+            await run_scenario("s6")
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 15.0
+            while approval is None and loop.time() < deadline:
+                await asyncio.sleep(0.1)
+                approval = _pending_merge_approval()
+        if approval is None:
+            return {"error": "S8 needs a pending fix-PR merge approval, and the S6 run did not produce one."}
 
         notif = Notification(
             id=generate_id("ntf"),
-            incident_id="inc_s6_sqli_breach",
+            incident_id=approval["incident_id"],
             severity="high",
-            title="Approval Required: Merge Fix PR #42",
-            body="SQL injection patch ready · 1 click biometric approval required to ship",
-            deep_link=f"/m/approvals/{act.id}",
+            title=f"Approval Required: Merge Fix PR #{approval['params'].get('pr_number', '?')}",
+            body="Proven fix ready · step-up approval required to ship",
+            deep_link=f"/m/approvals/{approval['id']}",
             actions=["review", "reject"],
         )
-        send_push_notification(notif)
+        await asyncio.to_thread(send_push_notification, notif)  # may call out to ntfy
         bus.broadcast_sse({"type": "notification", "data": notif.model_dump()})
-
         return {
             "run_id": run_id,
             "scenario_id": "S8",
             "scenario": "S8: Remote approval from phone",
             "status": "triggered",
-            "action_id": act.id,
-            "token": token,
-            "description": "Pushed approval request to mobile companion. Tap notification or open Approvals tab with biometric/passkey.",
+            "action_id": approval["id"],
+            "token": approval["token"],
+            "incident_id": approval["incident_id"],
+            "description": "Pushed the fix-PR merge approval to the mobile companion. Open Approvals and confirm with biometric/passkey or TOTP.",
         }
 
     # -----------------------------------------------------------------------
-    # S9: Kill Switch (Pause all autonomy)
+    # S9: Kill Switch (Pause all autonomy) then crash
     # -----------------------------------------------------------------------
-    elif s_id in ("s9", "kill_switch"):
+    elif s_id == "s9":
         executor.pause_autonomy(paused_by="user:demo_scenario")
         evt = Event(
             source="collector.docker",
             kind="container_exit",
             service="shoplite-api",
             severity="high",
-            data={
-                "exit_code": 1,
-                "error": "Crash while autonomy is paused.",
-            },
+            data={"exit_code": 137, "error": "Container shoplite-api killed while autonomy is paused."},
         )
         await bus.publish(evt)
-        await asyncio.sleep(0.15)
-        recent = bus.list_incidents(limit=1)
-        return {
-            "run_id": run_id,
-            "incident_id": recent[0].id if recent else None,
-            "scenario_id": "S9",
-            "scenario": "S9: Kill switch activated",
-            "status": "triggered",
-            "description": "Autonomy PAUSED. Container crash simulated: notice that Healer queues restart for human approval rather than auto-acting.",
-        }
+        inc = await _incident_for_event(evt.id)
+        return _triggered(
+            run_id, "S9", "S9: Kill switch activated", inc,
+            "Autonomy PAUSED. Container crash simulated: Healer queues the restart for human approval instead of acting. "
+            "Resuming autonomy needs step-up authentication.",
+        )
 
     else:
-        return {"error": f"Unknown scenario: {scenario_id}. Choose from s1 to s9."}
+        return {"error": f"Unknown scenario: {scenario_id}. Choose from S1 to S9."}
 
 
 def seed_initial_demo_state() -> None:

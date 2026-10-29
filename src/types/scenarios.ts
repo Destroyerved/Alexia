@@ -4,7 +4,10 @@ export type ScenarioId =
   | 'S4'
   | 'S6'
   | 'S3_DISK'
-  | 'S5_BRUTE';
+  | 'S5_BRUTE'
+  | 'S7'
+  | 'S8'
+  | 'S9';
 
 export interface ScenarioDefinition {
   id: ScenarioId;

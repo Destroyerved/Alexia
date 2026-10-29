@@ -27,10 +27,11 @@ from alexia.core.redact import RE_AWS_KEY, RE_GITHUB_TOKEN, RE_OPENAI_KEY, RE_PR
 from alexia.core.router import get_model_router
 from alexia.core.schemas import Action, Event, Incident
 from alexia.tools.reports import generate_cert_in_report, generate_dpdp_report, generate_gdpr_report
+from alexia.core.paths import evidence_dir
 
 logger = logging.getLogger("alexia.sentinel")
 
-EVIDENCE_DIR = os.getenv("EVIDENCE_DIR", "data/evidence")
+EVIDENCE_DIR = evidence_dir()
 
 
 class BreachInvestigationOutput(BaseModel):
@@ -73,7 +74,8 @@ class SentinelAgent:
                 # Nano confirmation to reduce false positives
                 findings.append({
                     "type": name,
-                    "match": str(m)[:12] + "..." + str(m)[-4:],
+                    # Keep only the well-known prefix and last 4 chars so the finding never re-leaks the key
+                    "match": str(m)[:8] + "****" + str(m)[-4:],
                     "confirmed": True,
                 })
 
@@ -144,8 +146,12 @@ class SentinelAgent:
             reason=f"Block malicious attacker IP {attacker_ip} for 1 hour",
             requested_by="agent:sentinel",
         )
-        self.executor.execute(block_action, incident_id=incident.id)
+        _, _, block_result = self.executor.execute(block_action, incident_id=incident.id)
         incident.plan.append(block_action)
+        if block_result.get("queued"):
+            # Kill switch engaged: containment waits for a human (FR-M6)
+            incident.approval_required = True
+            incident.approval_id = block_action.id
 
         # 3. Assess Exposed Data with Integrity Agent (FR-I5)
         from alexia.agents.integrity import get_integrity_agent
@@ -180,7 +186,7 @@ class SentinelAgent:
         # 5. Draft Regulatory Reports (FR-S8)
         cert_in_draft = generate_cert_in_report(
             incident_id=incident.id,
-            incident_type="Web Application Exploitation / SQL Injection",
+            incident_type=_INCIDENT_TYPES.get(incident.metadata.get("kind", ""), "Web Application Exploitation / SQL Injection"),
             systems_affected=[incident.metadata.get("service", "shoplite-api")],
             indicators={
                 "attacker_ips": [attacker_ip],
@@ -231,10 +237,20 @@ class SentinelAgent:
 
         incident.title = f"Contained Security Breach on {incident.metadata.get('service', 'shoplite-api')}"
         incident.summary = f"IP {attacker_ip} contained. Evidence hashed ({ev_hash[:12]}...). DPDP & CERT-In drafts ready."
+        if not incident.approval_required and incident.status in ("open", "triaged"):
+            # Containment-only breaches (e.g. brute force) are done once the IP block is in place
+            incident.status = "resolved"
         self.bus.update_incident(incident, reason="Sentinel completed containment and report drafting")
 
         return incident
 
+
+_INCIDENT_TYPES = {
+    "sqli_pattern": "Web Application Exploitation / SQL Injection",
+    "row_read_anomaly": "Data Exfiltration / Anomalous Row Reads",
+    "bruteforce": "Brute-Force / Credential Stuffing Attack",
+    "secret_in_diff": "Exposure of Credentials in Source Code",
+}
 
 _global_sentinel: Optional[SentinelAgent] = None
 

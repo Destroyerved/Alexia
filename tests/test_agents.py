@@ -36,7 +36,7 @@ async def test_builder_agent_pre_deploy_review_and_fix():
     # Pre-deploy review
     diff_with_secret = (
         "--- a/app/config.py\n+++ b/app/config.py\n@@ -1,2 +1,2 @@\n"
-        "+STRIPE_SECRET_KEY = 'sk_' 'live_abcdef123456789012345678'\n"
+        "+STRIPE_SECRET_KEY = 'sk_" "live_abcdef123456789012345678'\n"
     )
     review = builder.review_diff(diff_with_secret)
     assert review.has_critical_issue is True
@@ -63,7 +63,7 @@ async def test_deployer_agent_gates_and_rollback():
     # Gate 1: Leaked secret blocked
     res_secret = await deployer.deploy_commit(
         commit_sha="a1b2c3d4",
-        diff_text="+STRIPE_KEY='sk_' 'live_123456789012345678901234'\n",
+        diff_text="+STRIPE_KEY='sk_" "live_123456789012345678901234'\n",
     )
     assert res_secret["status"] == "blocked"
     assert res_secret["gate"] == "sentinel_secrets"

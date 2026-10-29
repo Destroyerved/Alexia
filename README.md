@@ -202,16 +202,19 @@ Alexia includes an installable mobile Progressive Web App with responsive views:
 
 ## 8. Demo Scenarios & Acceptance Criteria
 
-Alexia includes an evaluation suite (`evals/run_all.py`) that tests the system across 3 consecutive runs per scenario:
+Alexia includes an evaluation suite (`evals/run_all.py`) that drives every PRD §10 scenario through the real agent pipeline 3 consecutive times (in a scratch data directory) and checks each acceptance criterion:
 
-| # | Scenario | Agents | Acceptance Criteria | Result (3/3 Runs) |
+| # | Scenario | Agents | Acceptance Criteria (checked every run) | Result (3/3 Runs) |
 |---|---|---|---|---|
-| **S1** | **Bad Deploy** | Builder, Deployer | Pre-deploy risk review; health gate detects 500 error; rollback in &lt;60s; Builder opens fix PR. | **PASS (100%)** |
-| **S2** | **Container Crash** | Healer | Detected in &lt;15s; container restarted; health verified in &lt;60s; runbook fix recorded. | **PASS (100%)** |
-| **S4** | **Leaked Secret** | Sentinel, Deployer | Secret scanner catches `sk_live_...` in diff; deploy blocked; rotation requested. | **PASS (100%)** |
-| **S6** | **SQL Injection & Data Exposure** | Sentinel, Integrity, Builder, Deployer | Detected in &lt;30s; IP contained; log hashed; exposure assessed; Builder writes red→green patch; CERT-In/DPDP drafts ready. | **PASS (100%)** |
-| **S8** | **Remote Mobile Approval** | Mobile, Deployer | Single-use HMAC token issued; push notification sent; step-up approval verified. | **PASS (100%)** |
-| **S9** | **Autonomy Kill Switch** | Mobile, Healer | Autonomy paused; crash detected but auto-action paused and queued for manual approval. | **PASS (100%)** |
+| **S1** | **Bad Deploy** | Builder, Deployer | Builder review flags the bug; forced deploy fails the health gate; rollback executed in &lt;60s; regression test fails before and passes after the patch; fix PR opened; merge queued for approval. | **PASS** |
+| **S2** | **Container Crash** | Healer | Detected in &lt;15s; container restarted; resolved in &lt;60s; runbook entry stored. | **PASS** |
+| **S3** | **Disk Full** | Healer, Integrity | Triaged as `disk_full`; logs rotated; resolved. | **PASS** |
+| **S4** | **Leaked Secret** | Sentinel, Deployer | Secret scan blocks the deploy; Tier-1 `rotate_secret` queued; raw key never stored. | **PASS** |
+| **S5** | **Brute Force** | Sentinel | IP blocked in &lt;30s; timeline recorded; incident contained. | **PASS** |
+| **S6** | **SQL Injection & Data Exposure** | Sentinel, Integrity, Builder, Deployer | Detected in &lt;30s; evidence hashed; IP blocked; exposure assessed; red→green proof; merge queued for approval; CERT-In/DPDP/GDPR drafts. | **PASS** |
+| **S7** | **Destructive Migration** | Integrity, Deployer | Deploy blocked; rows at risk reported; Tier-1 `run_migration` queued. | **PASS** |
+| **S8** | **Remote Mobile Approval** | Mobile, Deployer | The S6 fix-PR merge approval is pending for the phone (approving needs step-up). | **PASS** |
+| **S9** | **Autonomy Kill Switch** | Mobile, Healer | Autonomy paused; crash detected but the restart is queued, not executed; incident not auto-resolved. | **PASS** |
 
 ---
 
@@ -265,8 +268,8 @@ npm run build
 # Start Vite dev server (proxies API & SSE to FastAPI backend on :8080)
 npm run dev
 
-# Run Frontend Vitest unit & mobile companion tests (9/9 passing)
-npm test
+# Run Frontend Vitest unit, adapter & mobile companion tests
+npx vitest run
 
 # Build production React PWA bundle directly into dashboard/static/
 npm run build
@@ -287,16 +290,23 @@ Launches the full interactive terminal console with live scenario execution, Tie
 # Run the complete end-to-end full workflow test suite
 PYTHONPATH=. pytest tests/test_full_workflow.py -v
 
-# Run the complete test suite (32 unit, integration & platform tests)
-PYTHONPATH=. pytest tests/ -v
+# Run the complete backend + target-app suite (unit, integration, platform & regression tests)
+PYTHONPATH=. pytest tests/ target-app/tests/ -v
 ```
-All 32 tests execute with a 100% pass rate.
+Tests run against a throwaway `ALEXIA_DATA_DIR` (see `tests/conftest.py`), never your live `data/alexia.db`.
 
 ### 5. Run the Evaluation Suite (3x Consecutive Pass Rate)
 ```bash
 PYTHONPATH=. python evals/run_all.py
 ```
-Runs scenarios S1, S2, S4, S6, S8, S9 three consecutive times each, verifying 100% audit hash chain integrity.
+Runs scenarios S1–S9 three consecutive times each against the PRD acceptance criteria, verifying audit hash chain integrity after every run.
+
+### 5b. Live End-to-End Verification (real HTTP + SSE)
+```bash
+python launcher.py --no-browser      # terminal 1: ShopLite on :8000, Alexia on :8080
+python evals/live_e2e.py             # terminal 2
+```
+Drives the running server over real HTTP and Server-Sent Events: every `/api/v1/*` route checked against the dashboard's TypeScript contracts, scenarios S1–S8 with a live SSE client attached, SQLite persistence, demo login → TOTP step-up → Tier-1 approval (and replay rejection), the kill switch, rollback/restart/snapshot restore, the online backup tool and audit-chain verification.
 
 ### 6. Run the Full Stack with Docker Compose
 ```bash

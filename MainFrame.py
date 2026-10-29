@@ -351,7 +351,16 @@ def menu_controls():
 
     if c == "1":
         will_pause = not is_paused
-        step_up = "demo.biometric.9999999999.sig" if not will_pause else None
+        step_up = None
+        if not will_pause:
+            # Resuming is the risky direction: step-up with TOTP like the mobile companion (FR-M6)
+            totp = Prompt.ask("[bold yellow]Enter 6-digit TOTP code to resume autonomy[/bold yellow] (Demo: 123456)", default="123456")
+            auth = get_auth_manager()
+            if not auth.verify_totp(totp):
+                console.print("[bold red]✗ Invalid TOTP code.[/bold red]")
+                time.sleep(1.5)
+                return
+            step_up = auth.create_step_up_token("mainframe_operator", method="totp")
         ok, msg = ctrl.toggle_autonomy(pause=will_pause, user="mainframe_operator", device_id="terminal", step_up_token=step_up)
         console.print(f"[bold {'green' if ok else 'red'}]{msg}[/bold {'green' if ok else 'red'}]")
         time.sleep(1.5)

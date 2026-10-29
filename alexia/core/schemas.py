@@ -221,8 +221,8 @@ class Incident(BaseModel):
         elif not self.affected_service:
             self.affected_service = "shoplite-api"
 
-        # Check pending tier-1 actions for approval_required / approval_id
-        pending_tier1 = [a for a in self.plan if a.tier == 1 and a.status == "pending"]
+        # Pending tier-1 actions, or any action the kill switch queued (it carries an approval token)
+        pending_tier1 = [a for a in self.plan if a.status == "pending" and (a.tier == 1 or a.approval_token)]
         if pending_tier1:
             self.approval_required = True
             self.approval_id = pending_tier1[0].id

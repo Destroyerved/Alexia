@@ -45,7 +45,8 @@ try {
 
 try {
   $audit = Invoke-RestMethod "http://127.0.0.1:$port/api/v1/audit/verify" -TimeoutSec 5
-  Row "Audit SHA-256 chain" $(if ($audit.verified) { "VERIFIED ($($audit.rows_checked) signed blocks)" } else { "TAMPER DETECTED: $($audit.error)" }) ([bool]$audit.verified)
+  # /api/v1/audit/verify returns { valid, records_checked, verification_error }
+  Row "Audit SHA-256 chain" $(if ($audit.valid) { "VERIFIED ($($audit.records_checked) signed blocks)" } else { "TAMPER DETECTED: $($audit.verification_error)" }) ([bool]$audit.valid)
 } catch { }
 
 $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime

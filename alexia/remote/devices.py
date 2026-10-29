@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from alexia.core.audit import get_audit_log
+from alexia.core.paths import resolve_db_path
 
 logger = logging.getLogger("alexia.devices")
 
@@ -23,7 +24,8 @@ class DeviceManager:
     """Manages registered mobile and browser devices."""
 
     def __init__(self, db_path: str = "data/alexia.db"):
-        self.db_path = db_path
+        # source_db_path is what singletons compare against; db_path may fall back to *.sqlite
+        self.db_path = self.source_db_path = resolve_db_path(db_path)
         self.audit = get_audit_log(db_path)
         self._lock = threading.Lock()
         self._init_db()

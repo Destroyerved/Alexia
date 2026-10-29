@@ -18,7 +18,8 @@ from pydantic import BaseModel
 from alexia.core.bus import get_event_bus
 from alexia.core.llm import get_llm_client
 from alexia.core.router import get_model_router
-from alexia.core.schemas import Action, Incident
+from alexia.actions.executor import get_executor
+from alexia.core.schemas import Action, Diagnosis, Incident
 from alexia.tools.github import open_github_pr
 from alexia.tools.sandbox import get_sandbox_runner
 from alexia.tools.tavily import search_web
@@ -164,22 +165,42 @@ class BuilderAgent:
             )
         )
 
-        # 7. Add Tier-1 Deploy Action (needs merge approval)
-        incident.plan.append(
-            Action(
-                action="merge_pull_request_and_deploy",
-                target=incident.metadata.get("service", "shoplite-api"),
-                tier=1,
-                params={"pr_number": pr_info.get("number"), "branch": f"fix/alexia-{incident.id}"},
-                reason="Deploy verified bugfix to production",
-                expected_outcome="Release candidate deployed through health-gated pipeline",
-                rollback="rollback_to_last_good_image",
-                requested_by="agent:builder",
-                status="pending",
+        # Ground the incident diagnosis in the patch root cause and Tavily sources (FR-U2) when none exists yet
+        if not incident.diagnosis.root_cause:
+            incident.diagnosis = Diagnosis(
+                root_cause=patch_output.root_cause,
+                explanation=patch_output.explanation,
+                evidence=[
+                    error_text or incident.summary,
+                    f"RED: regression test failed before patch = {sandbox_result['failed_before']}",
+                    f"GREEN: regression test passed after patch = {sandbox_result['passed_after']}",
+                ],
+                sources=tavily_sources,
+                confidence=0.9 if sandbox_result["success"] else 0.6,
             )
-        )
+        elif not incident.diagnosis.sources:
+            # e.g. Sentinel already wrote the root cause; still show the Tavily sources behind the fix
+            incident.diagnosis.sources = tavily_sources
 
-        incident.status = "resolved" if sandbox_result["success"] else "acting"
+        # 7. Tier-1 merge + deploy: queued through the executor so it lands in the approval panel (FR-C7, FR-D5)
+        merge_action = Action(
+            action="merge_pull_request_and_deploy",
+            target=incident.metadata.get("service", "shoplite-api"),
+            tier=1,
+            params={"pr_number": pr_info.get("number"), "branch": f"fix/alexia-{incident.id}"},
+            reason=f"Merge proven fix PR #{pr_info.get('number')} and deploy through the health-gated pipeline",
+            expected_outcome="Release candidate deployed through health-gated pipeline",
+            rollback="rollback_to_last_good_image",
+            requested_by="agent:builder",
+        )
+        if sandbox_result["success"]:
+            get_executor().execute(merge_action, incident_id=incident.id)
+            incident.approval_required = True
+            incident.approval_id = merge_action.id
+        incident.plan.append(merge_action)
+
+        # A proven fix waits on the human merge approval; an unproven one stays with Builder (FR-B3)
+        incident.status = "acting"
         incident.title = f"Fix PR #{pr_info.get('number')} opened with red-to-green proof"
         incident.summary = f"Generated regression test & patch. Verified in sandbox. Opened PR #{pr_info.get('number')}."
         self.bus.update_incident(incident, reason="Builder completed code fix and opened PR")

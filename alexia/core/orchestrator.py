@@ -45,7 +45,14 @@ class Orchestrator:
         logger.info("Alexia Orchestrator subscribed to EventBus.")
 
     async def handle_bus_event(self, event: Event) -> None:
-        """Handle incoming telemetry events from collectors."""
+        """Handle incoming telemetry events from collectors.
+
+        Agent loops make blocking calls (Token Factory HTTP, sandbox pytest runs), so each one runs on a
+        worker thread with its own event loop; the server loop keeps serving the API and SSE meanwhile.
+        """
+        await asyncio.to_thread(asyncio.run, self._handle_event(event))
+
+    async def _handle_event(self, event: Event) -> None:
         logger.info(f"Orchestrator received event: {event.kind} from {event.source} (severity: {event.severity})")
 
         # Skip internal system notifications
@@ -113,6 +120,8 @@ class Orchestrator:
                 diff_text=diff_text,
                 migration_sql=mig_sql,
                 service=event.service,
+                force_deploy=bool(event.data.get("force_deploy", False)),
+                event_id=event.id,
             )
 
     def _send_push(self, incident: Incident) -> None:

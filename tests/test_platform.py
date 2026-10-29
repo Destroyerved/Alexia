@@ -214,7 +214,8 @@ def test_handover_api_v1_endpoints():
 
     r_rep = client.get("/api/v1/security/reports")
     assert r_rep.status_code == 200
-    assert len(r_rep.json()) == 3
+    # 3 seeded drafts plus any CERT-In/DPDP/GDPR drafts Sentinel wrote for live incidents
+    assert len(r_rep.json()) >= 3
 
     # Observability / models
     r_mod = client.get("/api/v1/observability/models")

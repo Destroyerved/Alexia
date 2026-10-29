@@ -1,23 +1,62 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ShieldAlert,
   Fingerprint,
   Camera,
   CheckCircle2,
   Copy,
+  Download,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAlexia } from '../../context/AlexiaContext';
 import { formatRelativeTime, truncateHash, formatBytes } from '../../lib/formatters';
 import { SecurityReport } from '../../types/reports';
 
 export const SecurityView: React.FC = () => {
-  const { securityReports, auditLogs, snapshots } = useAlexia();
+  const { securityReports, auditLogs, auditChain, snapshots, currentView, verifyAuditChain } = useAlexia();
 
-  const [activeTab, setActiveTab] = useState<'reports' | 'audit' | 'snapshots'>('reports');
-  const [selectedReport, setSelectedReport] = useState<SecurityReport>(securityReports[0]);
+  const [activeTab, setActiveTab] = useState<'reports' | 'audit' | 'snapshots'>(
+    currentView === 'audit' ? 'audit' : 'reports'
+  );
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [verifyResult, setVerifyResult] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // The sidebar has separate "Security & Reports" and "Audit Log" entries that share this view
+  useEffect(() => {
+    if (currentView === 'audit') setActiveTab('audit');
+    else if (currentView === 'security') setActiveTab('reports');
+  }, [currentView]);
+
+  // Reports arrive from the live backend after first render; fall back to the newest one
+  const selectedReport: SecurityReport | undefined =
+    securityReports.find((r) => r.id === selectedReportId) ?? securityReports[0];
+  const setSelectedReport = (rep: SecurityReport) => setSelectedReportId(rep.id);
+
+  const handleVerifyChain = async () => {
+    const res = await verifyAuditChain();
+    setVerifyResult({ ok: res.success, text: res.message });
+  };
+
+  // FR-U7: export the draft as Markdown for legal review
+  const handleExportMarkdown = () => {
+    if (!selectedReport) return;
+    const md = [
+      `# ${selectedReport.title}`,
+      `> ${selectedReport.disclaimer}`,
+      `Incident: ${selectedReport.incident_id}`,
+      ...selectedReport.sections.map((sec) => `## ${sec.heading}\n\n${sec.content}`),
+    ].join('\n\n');
+    const url = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${selectedReport.id}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const handleCopyReport = () => {
+    if (!selectedReport) return;
     const text = selectedReport.sections
       .map((s) => `${s.heading}\n${s.content}\n`)
       .join('\n');
@@ -80,8 +119,13 @@ export const SecurityView: React.FC = () => {
       {activeTab === 'reports' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           <div className="lg:col-span-4 space-y-2.5">
+            {securityReports.length === 0 && (
+              <div className="web-card p-6 text-xs text-[var(--text-muted)] text-center">
+                No breach-report drafts yet. Run scenario S6 to have Sentinel draft CERT-In / DPDP / GDPR notices.
+              </div>
+            )}
             {securityReports.map((rep) => {
-              const isSelected = selectedReport.id === rep.id;
+              const isSelected = selectedReport?.id === rep.id;
               return (
                 <div
                   key={rep.id}
@@ -102,19 +146,32 @@ export const SecurityView: React.FC = () => {
             })}
           </div>
 
+          {selectedReport && (
           <div className="lg:col-span-8 web-card p-6 space-y-4">
+            <p className="p-2.5 rounded-lg text-[11px] font-semibold bg-[var(--status-warning-bg)] text-[var(--status-warning)] border border-[var(--status-warning-border)]">
+              {selectedReport.disclaimer}
+            </p>
             <div className="flex items-center justify-between pb-3 border-b border-[var(--border-subtle)]">
               <div>
                 <h3 className="text-base font-bold text-[var(--text-primary)]">{selectedReport.title}</h3>
                 <p className="text-xs text-[var(--text-muted)] font-mono mt-0.5">Report {selectedReport.id}</p>
               </div>
-              <button
-                onClick={handleCopyReport}
-                className="web-btn-secondary text-xs"
-              >
-                <Copy size={13} />
-                <span>Copy</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCopyReport}
+                  className="web-btn-secondary text-xs"
+                >
+                  <Copy size={13} />
+                  <span>Copy</span>
+                </button>
+                <button
+                  onClick={handleExportMarkdown}
+                  className="web-btn-secondary text-xs"
+                >
+                  <Download size={13} />
+                  <span>Export .md</span>
+                </button>
+              </div>
             </div>
 
             {copyFeedback && (
@@ -133,16 +190,40 @@ export const SecurityView: React.FC = () => {
               ))}
             </div>
           </div>
+          )}
         </div>
       )}
 
       {/* Audit Log Tab */}
       {activeTab === 'audit' && (
         <div className="web-card overflow-hidden">
-          <div className="p-4 border-b border-[var(--border-subtle)] flex items-center justify-between text-xs">
+          <div className="p-4 border-b border-[var(--border-subtle)] flex flex-wrap items-center justify-between gap-2 text-xs">
             <span className="font-semibold text-[var(--text-primary)]">SHA-256 Tamper-Evident Ledger</span>
-            <span className="text-[var(--text-muted)] font-mono">1,482 verified blocks</span>
+            <div className="flex items-center gap-3">
+              <span
+                className="font-mono font-semibold"
+                style={{ color: auditChain && !auditChain.verified ? 'var(--status-critical)' : 'var(--status-success)' }}
+              >
+                {auditChain
+                  ? auditChain.verified
+                    ? `Chain verified \u2713 (${auditChain.rows.toLocaleString()} blocks)`
+                    : 'Chain verification FAILED'
+                  : 'Demo ledger (offline)'}
+              </span>
+              <button type="button" onClick={handleVerifyChain} className="web-btn-secondary text-[11px]">
+                <ShieldCheck size={12} />
+                <span>Verify now</span>
+              </button>
+            </div>
           </div>
+          {verifyResult && (
+            <p
+              className="px-4 py-2 text-xs border-b border-[var(--border-subtle)]"
+              style={{ color: verifyResult.ok ? 'var(--status-success)' : 'var(--status-critical)' }}
+            >
+              {verifyResult.text}
+            </p>
+          )}
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs font-mono">

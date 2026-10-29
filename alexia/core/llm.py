@@ -302,15 +302,17 @@ class LLMClient:
 
         # Task: Event Triage
         if "triage" in task or "classify" in lower_prompt:
-            if "137" in lower_prompt or "oom" in lower_prompt or "killed" in lower_prompt:
-                category = "oom"
-            elif "exit" in lower_prompt or "crash" in lower_prompt or "die" in lower_prompt or "502" in lower_prompt:
-                category = "crash"
-            elif "disk" in lower_prompt or "full" in lower_prompt or "space" in lower_prompt:
+            # Classify on the telemetry only: the instruction text itself lists every category name
+            telemetry = lower_prompt.split("classify into category")[0]
+            if "disk_high" in telemetry or "disk" in telemetry or "capacity" in telemetry:
                 category = "disk_full"
-            elif "secret" in lower_prompt or "stripe" in lower_prompt or "sqli" in lower_prompt or "union select" in lower_prompt or "login" in lower_prompt:
+            elif "137" in telemetry or "oom" in telemetry or "killed" in telemetry:
+                category = "oom"
+            elif "exit" in telemetry or "crash" in telemetry or "die" in telemetry or "502" in telemetry:
+                category = "crash"
+            elif "secret" in telemetry or "stripe" in telemetry or "sqli" in telemetry or "union select" in telemetry or "login" in telemetry:
                 category = "security"
-            elif "zero" in lower_prompt or "division" in lower_prompt or "500" in lower_prompt:
+            elif "zero" in telemetry or "division" in telemetry or "500" in telemetry:
                 category = "code_bug"
             else:
                 category = "unknown"
@@ -364,19 +366,36 @@ class LLMClient:
 
         # Task: Diagnosis
         if "diagnose" in task or "diagnosis" in lower_prompt:
+            if "category 'disk_full'" in lower_prompt:
+                root_cause = "Unrotated access logs filled the /var/log/shoplite volume."
+                evidence = ["Log volume above 95% capacity", "No logrotate policy applied to access.log"]
+            elif "category 'oom'" in lower_prompt:
+                root_cause = "Worker exceeded its memory limit and was killed (exit code 137)."
+                evidence = ["Container exited with code 137 (SIGKILL)", "HTTP 502 while the container was down"]
+            else:
+                root_cause = "Process termination or unhandled exception in target service."
+                evidence = ["Container exited with non-zero exit code", "HTTP 502/500 connection refused"]
             res = json.dumps({
-                "root_cause": "Process termination or unhandled exception in target service.",
-                "evidence": ["Container exited with non-zero exit code", "HTTP 502/500 connection refused"],
+                "root_cause": root_cause,
+                "evidence": evidence,
                 "confidence": 0.92,
-                "suggested_actions": [{"action": "restart_container", "target": "shoplite-api", "tier": 0}],
             })
             return res, 260, 95, True
 
         # Task: Fix Planning (Ultra)
         if "fix_planning" in task or "plan safe remediation" in lower_prompt:
+            if "category: disk_full" in lower_prompt:
+                actions = [{"action": "clear_tmp_and_rotate_logs", "target": "shoplite-api", "tier": 0}]
+                outcome = "Logs archived and rotated; volume usage back under 70% with no data files touched."
+            elif "category: config_error" in lower_prompt:
+                actions = [{"action": "rollback_to_last_good_image", "target": "shoplite-api", "tier": 0}]
+                outcome = "Last known-good image restored."
+            else:
+                actions = [{"action": "restart_container", "target": "shoplite-api", "tier": 0}]
+                outcome = "Target service restored to healthy 200 OK operational state."
             res = json.dumps({
-                "actions": [{"action": "restart_container", "target": "shoplite-api", "tier": 0}],
-                "expected_outcome": "Target service restored to healthy 200 OK operational state.",
+                "actions": actions,
+                "expected_outcome": outcome,
                 "rollback_plan": "rollback_to_last_good_image",
                 "confidence": 0.95,
             })

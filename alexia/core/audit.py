@@ -14,6 +14,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from alexia.core.schemas import AuditEntry
+from alexia.core.paths import resolve_db_path
 
 GENESIS_HASH = "0" * 64
 
@@ -22,12 +23,8 @@ class AuditLog:
     """Manages the append-only tamper-evident audit ledger in SQLite."""
 
     def __init__(self, db_path: str = "data/alexia.db"):
-        if db_path == "data/alexia.db":
-            if os.environ.get("ALEXIA_DB"):
-                db_path = os.environ["ALEXIA_DB"]
-            elif os.environ.get("ALEXIA_DATA_DIR"):
-                db_path = os.path.join(os.environ["ALEXIA_DATA_DIR"], "alexia.db")
-        self.db_path = db_path
+        # source_db_path is what singletons compare against; db_path may fall back to *.sqlite
+        self.db_path = self.source_db_path = resolve_db_path(db_path)
         os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
         self._lock = threading.Lock()
         self._init_db()
@@ -216,6 +213,6 @@ _global_audit_log: Optional[AuditLog] = None
 def get_audit_log(db_path: str = "data/alexia.db") -> AuditLog:
     """Retrieve or initialize the global AuditLog instance."""
     global _global_audit_log
-    if _global_audit_log is None or _global_audit_log.db_path != db_path:
+    if _global_audit_log is None or _global_audit_log.source_db_path != resolve_db_path(db_path):
         _global_audit_log = AuditLog(db_path=db_path)
     return _global_audit_log

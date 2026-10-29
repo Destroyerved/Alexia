@@ -21,6 +21,7 @@ from alexia.actions.approvals import get_approval_manager
 from alexia.actions.catalog import get_action_tier, touches_data, validate_action_params
 from alexia.core.audit import get_audit_log
 from alexia.core.schemas import Action, ActionTier
+from alexia.core.paths import resolve_db_path
 
 logger = logging.getLogger("alexia.executor")
 
@@ -29,7 +30,8 @@ class ActionExecutor:
     """Safely executes authorized actions against target services."""
 
     def __init__(self, db_path: str = "data/alexia.db"):
-        self.db_path = db_path
+        # source_db_path is what singletons compare against; db_path may fall back to *.sqlite
+        self.db_path = self.source_db_path = resolve_db_path(db_path)
         self.audit = get_audit_log(db_path)
         self.approvals = get_approval_manager(db_path)
         self._init_ip_blocklist_db()
@@ -354,6 +356,6 @@ _global_executor: Optional[ActionExecutor] = None
 def get_executor(db_path: str = "data/alexia.db") -> ActionExecutor:
     """Retrieve or initialize the global ActionExecutor singleton."""
     global _global_executor
-    if _global_executor is None or _global_executor.db_path != db_path:
+    if _global_executor is None or _global_executor.source_db_path != resolve_db_path(db_path):
         _global_executor = ActionExecutor(db_path=db_path)
     return _global_executor

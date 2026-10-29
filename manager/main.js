@@ -407,9 +407,13 @@ async function runCommand(raw) {
       return runAction('Restart Alexia', () => service.restart());
     case 'backup':
       return runAction('Back up now', () => backups.backupNow((l) => logConsole('manager', l)), { needsAdmin: false });
-    case 'health':
-      logConsole('info', JSON.stringify(lastState.health || { ok: false, error: 'not answering' }, null, 2));
-      return { ok: true };
+    case 'health': {
+      // Ask the server now rather than reporting the last poll, which can lag on a busy machine
+      const port = Number(envfile.read().values.PORT || 8080);
+      const health = await fetchJson(`http://127.0.0.1:${port}/v1/health`);
+      logConsole('info', JSON.stringify(health || { ok: false, error: `not answering on port ${port}` }, null, 2));
+      return { ok: Boolean(health) };
+    }
     case 'status':
     case 'check': {
       const checkScript = [path.join(paths.ROOT, 'check.ps1'), path.join(paths.bundleDir(), 'windows', 'check.ps1')].find((f) => fs.existsSync(f));

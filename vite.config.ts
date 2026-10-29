@@ -38,6 +38,8 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         navigateFallback: 'index.html',
+        // Keep API, SSE and FastAPI docs navigations on the network instead of the cached app shell
+        navigateFallbackDenylist: [/^\/(api|v1|remote|stream|webhook|docs|redoc|openapi\.json)/],
       },
     }),
   ],

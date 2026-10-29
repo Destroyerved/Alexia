@@ -16,6 +16,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Set
 from alexia.core.schemas import Event, Incident, generate_id
+from alexia.core.paths import resolve_db_path
 
 logger = logging.getLogger("alexia.bus")
 
@@ -24,12 +25,8 @@ class EventBus:
     """Async event bus managing event publishing, subscriber dispatch, and persistence."""
 
     def __init__(self, db_path: str = "data/alexia.db"):
-        if db_path == "data/alexia.db":
-            if os.environ.get("ALEXIA_DB"):
-                db_path = os.environ["ALEXIA_DB"]
-            elif os.environ.get("ALEXIA_DATA_DIR"):
-                db_path = os.path.join(os.environ["ALEXIA_DATA_DIR"], "alexia.db")
-        self.db_path = db_path
+        # source_db_path is what singletons compare against; db_path may fall back to *.sqlite
+        self.db_path = self.source_db_path = resolve_db_path(db_path)
         os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
         self._queue: asyncio.Queue[Event] = asyncio.Queue()
         self._subscribers: Dict[str, List[Callable[[Event], Coroutine[Any, Any, None]]]] = {}
@@ -37,6 +34,7 @@ class EventBus:
         self._db_lock = threading.Lock()
         self._running = False
         self._worker_task: Optional[asyncio.Task] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -133,6 +131,7 @@ class EventBus:
         if self._running:
             return
         self._running = True
+        self._loop = asyncio.get_running_loop()
         self._worker_task = asyncio.create_task(self._process_queue())
         logger.info("Alexia EventBus started.")
 
@@ -200,7 +199,9 @@ class EventBus:
                 # Execute subscribers concurrently
                 if callbacks:
                     tasks = [asyncio.create_task(cb(event)) for cb in callbacks]
-                    await asyncio.gather(*tasks, return_exceptions=True)
+                    for result in await asyncio.gather(*tasks, return_exceptions=True):
+                        if isinstance(result, Exception):
+                            logger.error(f"Handler failed for event {event.id} ({event.kind}): {result!r}", exc_info=result)
 
                 self._queue.task_done()
             except asyncio.CancelledError:
@@ -208,8 +209,25 @@ class EventBus:
             except Exception as e:
                 logger.error(f"Error in EventBus queue processor: {e}", exc_info=True)
 
+    async def drain(self) -> None:
+        """Wait until every published event has been fully handled by its subscribers."""
+        await self._queue.join()
+
     def broadcast_sse(self, message: Dict[str, Any]) -> None:
-        """Non-blocking broadcast to all live SSE queues."""
+        """Non-blocking broadcast to all live SSE queues; safe to call from agent worker threads."""
+        loop = self._loop
+        if loop is not None and loop.is_running():
+            try:
+                current = asyncio.get_running_loop()
+            except RuntimeError:
+                current = None
+            if current is not loop:
+                # SSE queues belong to the server loop; asyncio queues are not thread-safe
+                loop.call_soon_threadsafe(self._broadcast_now, message)
+                return
+        self._broadcast_now(message)
+
+    def _broadcast_now(self, message: Dict[str, Any]) -> None:
         dead_listeners = []
         for q in list(self._sse_listeners):
             try:
@@ -398,6 +416,6 @@ _global_bus: Optional[EventBus] = None
 def get_event_bus(db_path: str = "data/alexia.db") -> EventBus:
     """Retrieve or initialize the global EventBus instance."""
     global _global_bus
-    if _global_bus is None or _global_bus.db_path != db_path:
+    if _global_bus is None or _global_bus.source_db_path != resolve_db_path(db_path):
         _global_bus = EventBus(db_path=db_path)
     return _global_bus

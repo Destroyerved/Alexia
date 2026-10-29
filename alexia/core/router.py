@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from alexia.core.llm import LLMClient, get_llm_client
 from alexia.core.memory import RunbookMemory, get_runbook_memory
-from alexia.core.schemas import Action, Diagnosis, DiagnosticSource, ModelCall, ModelTier
+from alexia.core.schemas import Action, Diagnosis, DiagnosticSource, ModelCall, ModelTier, generate_id
 
 logger = logging.getLogger("alexia.router")
 
@@ -175,7 +175,18 @@ class ModelRouter:
                 )
                 if "yes" in raw_confirm.lower():
                     logger.info("Nano confirmed runbook fix replay.")
-                    return match["actions"], call
+                    # Replay as new actions: reusing stored ids would overwrite the old approval/audit rows
+                    replayed = [
+                        a.model_copy(update={
+                            "id": generate_id("act"),
+                            "status": "pending",
+                            "executed_at": None,
+                            "execution_result": None,
+                            "approval_token": None,
+                        })
+                        for a in match["actions"]
+                    ]
+                    return replayed, call
 
         # 2. Plan with Nemotron Ultra
         tier: ModelTier = "ultra"

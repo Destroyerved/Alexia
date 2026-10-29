@@ -29,6 +29,7 @@ export const ApprovalsView: React.FC = () => {
   } | null>(null);
 
   const [rejectionReason, setRejectionReason] = useState('');
+  const [stepUpCode, setStepUpCode] = useState('');
   const [feedbackMessage, setFeedbackMessage] = useState<{
     type: 'success' | 'error';
     text: string;
@@ -43,7 +44,7 @@ export const ApprovalsView: React.FC = () => {
     const { approval, decision } = confirmingAction;
     try {
       if (decision === 'approved') {
-        const res = await approveAction(approval.id);
+        const res = await approveAction(approval.id, undefined, stepUpCode);
         setFeedbackMessage({
           type: res.success ? 'success' : 'error',
           text: res.message,
@@ -66,6 +67,7 @@ export const ApprovalsView: React.FC = () => {
     } finally {
       setConfirmingAction(null);
       setRejectionReason('');
+      setStepUpCode('');
       setTimeout(() => setFeedbackMessage(null), 5000);
     }
   };
@@ -176,6 +178,16 @@ export const ApprovalsView: React.FC = () => {
                     <span className="text-[11px] text-[var(--text-muted)] block font-medium">Rollback Safeguard</span>
                     <span className="text-[var(--accent-primary)] font-mono mt-0.5 block">{app.rollback_plan}</span>
                   </div>
+                  <div>
+                    <span className="text-[11px] text-[var(--text-muted)] block font-medium">Pre-action Snapshot</span>
+                    <span className="text-[var(--text-primary)] font-mono mt-0.5 block">{app.snapshot_id || 'none (no data touched)'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-[var(--text-muted)] block font-medium">Approval Token Expires</span>
+                    <span className="text-[var(--text-primary)] font-mono mt-0.5 block">
+                      {app.expires_at ? new Date(app.expires_at).toLocaleTimeString() : 'n/a'}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Action Buttons: Clearly Separated */}
@@ -256,6 +268,25 @@ export const ApprovalsView: React.FC = () => {
               <p className="text-[var(--text-secondary)]">Target: {confirmingAction.approval.affected_service}</p>
             </div>
 
+            {confirmingAction.decision === 'approved' && (
+              <div>
+                <label htmlFor="step-up-code" className="block text-xs text-[var(--text-secondary)] mb-1 font-medium">
+                  Step-up verification (passkey / biometric, or 6-digit TOTP)
+                </label>
+                <input
+                  id="step-up-code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  placeholder="Demo code: 123456"
+                  value={stepUpCode}
+                  onChange={(e) => setStepUpCode(e.target.value.replace(/\D/g, ''))}
+                  className="web-input w-full text-xs font-mono tracking-widest"
+                />
+              </div>
+            )}
+
             {confirmingAction.decision === 'rejected' && (
               <div>
                 <label className="block text-xs text-[var(--text-secondary)] mb-1 font-medium">Rejection Reason</label>
@@ -280,7 +311,8 @@ export const ApprovalsView: React.FC = () => {
               <button
                 type="button"
                 onClick={handleConfirmDecision}
-                className="web-btn-primary text-xs"
+                disabled={confirmingAction.decision === 'approved' && stepUpCode.length !== 6}
+                className="web-btn-primary text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                 style={
                   confirmingAction.decision === 'rejected'
                     ? { backgroundColor: 'var(--status-critical)', color: '#FFFFFF' }

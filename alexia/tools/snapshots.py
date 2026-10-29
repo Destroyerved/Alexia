@@ -18,10 +18,11 @@ from typing import Any, Dict, List, Optional
 
 from alexia.core.audit import get_audit_log
 from alexia.core.schemas import generate_id
+from alexia.core.paths import snapshot_dir
 
 logger = logging.getLogger("alexia.snapshots")
 
-SNAPSHOT_DIR = os.getenv("SNAPSHOT_DIR", "data/snapshots")
+SNAPSHOT_DIR = snapshot_dir()
 SHOPLITE_DB_PATH = os.getenv("DATABASE_URL", "sqlite:///./data/shoplite.db").replace("sqlite:///", "")
 
 

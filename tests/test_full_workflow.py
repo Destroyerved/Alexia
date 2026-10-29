@@ -116,16 +116,17 @@ async def test_full_headline_security_workflow_s6():
 
     # 2. Publish to EventBus and allow agents to orchestrate
     await bus.publish(sqli_event)
-    await asyncio.sleep(1.2)
+    await asyncio.wait_for(bus.drain(), timeout=60)  # agent loops run off the server loop
 
     # 3. Verify Sentinel Containment: Offending IP temporarily blocked in reverse proxy
     assert executor.is_ip_blocked(attacker_ip) is True
 
     # 4. Verify Forensic Evidence Preservation (FR-S6)
-    evidence_dir = "data/evidence"
+    from alexia.agents.sentinel import EVIDENCE_DIR as evidence_dir
+
     assert os.path.exists(evidence_dir)
     ev_files = [f for f in os.listdir(evidence_dir) if f.endswith(".log")]
-    assert len(ev_files) > 0, "Expected forensic evidence log file created in data/evidence"
+    assert len(ev_files) > 0, f"Expected forensic evidence log file created in {evidence_dir}"
 
     # Verify SHA-256 header in forensic log
     latest_ev = sorted(ev_files, key=lambda fn: os.path.getmtime(os.path.join(evidence_dir, fn)))[-1]
@@ -377,7 +378,7 @@ async def test_full_workflow_security_and_integrity_gating():
     leaked_diff = (
         "--- a/app/config.py\n+++ b/app/config.py\n"
         "@@ -5,1 +5,1 @@\n"
-        "+STRIPE_SECRET_KEY = 'sk_' 'live_51MzDemoKeyWithRealEntropy7739'\n"
+        "+STRIPE_SECRET_KEY = 'sk_" "live_51MzDemoKeyWithRealEntropy7739'\n"
     )
     s4_result = await deployer.deploy_commit(
         commit_sha="leak1122",
@@ -527,13 +528,19 @@ def test_full_workflow_fastapi_rest_and_demo_integration():
     pending_list = res_approvals.json()
     assert any(p["action_id"] == action_id for p in pending_list)
 
-    # 5. Decide approval via API
+    # 5. Decide approval via API (approving needs a fresh step-up token, FR-M5)
+    no_step_up = client.post(
+        f"/approvals/{action_id}/decide",
+        json={"decision": "approved", "decided_by": "mobile_admin", "token": token},
+    )
+    assert no_step_up.status_code == 401
+    step_up = client.post("/remote/auth/step-up", json={"passkey_signature": "demo-webauthn-assertion"}).json()["step_up_token"]
     res_decide = client.post(
         f"/approvals/{action_id}/decide",
         json={
             "decision": "approved",
             "decided_by": "mobile_admin",
-            "step_up_method": "face_id",
+            "step_up_token": step_up,
             "token": token,
         },
     )

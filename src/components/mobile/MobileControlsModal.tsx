@@ -8,8 +8,11 @@ import {
   ShieldCheck,
   CheckCircle2,
   Lock,
+  RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
 import { useAlexia } from '../../context/AlexiaContext';
+import { ActionResult } from '../../lib/api';
 
 interface MobileControlsModalProps {
   isOpen: boolean;
@@ -20,15 +23,24 @@ export const MobileControlsModal: React.FC<MobileControlsModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { autonomyState, toggleAutonomy, rollbackDeployment } = useAlexia();
-  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const {
+    autonomyState,
+    toggleAutonomy,
+    rollbackDeployment,
+    restartService,
+    takeSnapshot,
+    verifyAuditChain,
+    auditChain,
+  } = useAlexia();
+  const [actionFeedback, setActionFeedback] = useState<{ ok: boolean; text: string } | null>(null);
 
   if (!isOpen) return null;
 
-  const handleAction = async (name: string, fn: () => Promise<any> | any) => {
-    await fn();
-    setActionFeedback(`Executed: ${name}`);
-    setTimeout(() => setActionFeedback(null), 3000);
+  // Every control goes through the same catalog/tier checks as the agents (FR-M7); show the server's verdict
+  const handleAction = async (name: string, fn: () => Promise<ActionResult>) => {
+    const res = await fn();
+    setActionFeedback({ ok: res.success, text: res.message || name });
+    setTimeout(() => setActionFeedback(null), 4000);
   };
 
   return (
@@ -74,20 +86,20 @@ export const MobileControlsModal: React.FC<MobileControlsModalProps> = ({
           <div
             className="mb-4 p-2.5 rounded-xl border text-xs flex items-center gap-2"
             style={{
-              backgroundColor: 'var(--status-success-bg)',
-              borderColor: 'var(--status-success-border)',
-              color: 'var(--status-success)',
+              backgroundColor: actionFeedback.ok ? 'var(--status-success-bg)' : 'var(--status-critical-bg)',
+              borderColor: actionFeedback.ok ? 'var(--status-success-border)' : 'var(--status-critical-border)',
+              color: actionFeedback.ok ? 'var(--status-success)' : 'var(--status-critical)',
             }}
           >
-            <CheckCircle2 size={16} />
-            <span>{actionFeedback}</span>
+            {actionFeedback.ok ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+            <span>{actionFeedback.text}</span>
           </div>
         )}
 
         <div className="space-y-3">
           {/* Autonomy switch */}
           <button
-            onClick={() => handleAction('Autonomy Toggle', toggleAutonomy)}
+            onClick={() => handleAction('Autonomy Toggle', () => toggleAutonomy())}
             className="w-full min-h-[50px] p-3 rounded-xl border flex items-center justify-between transition-all text-left cursor-pointer"
             style={{
               backgroundColor: 'var(--surface-card)',
@@ -120,11 +132,38 @@ export const MobileControlsModal: React.FC<MobileControlsModalProps> = ({
             </span>
           </button>
 
+          {/* Restart service */}
+          <button
+            onClick={() => handleAction('Restart shoplite-api', () => restartService('svc_shoplite_api'))}
+            className="w-full min-h-[50px] p-3 rounded-xl border flex items-center justify-between transition-all text-left cursor-pointer"
+            style={{
+              backgroundColor: 'var(--surface-card)',
+              borderColor: 'var(--border-subtle)',
+            }}
+          >
+            <div className="flex items-center gap-3">
+              <RefreshCw className="text-[var(--status-info)]" size={20} />
+              <div>
+                <p className="text-xs font-semibold text-[var(--text-primary)]">Restart shoplite-api</p>
+                <p className="text-[11px] text-[var(--text-secondary)]">Queued for approval while autonomy is paused</p>
+              </div>
+            </div>
+            <span
+              className="text-[10px] font-mono uppercase px-2 py-0.5 rounded"
+              style={{
+                backgroundColor: 'var(--surface-elevated)',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              Tier 0
+            </span>
+          </button>
+
           {/* Rollback service */}
           <button
             onClick={() =>
-              handleAction('Rollback shoplite-api to v2.4.1-patch1', () =>
-                rollbackDeployment('shoplite-api', 'shoplite-api:v2.4.1-patch1', 'Manual mobile rollback command')
+              handleAction('Rollback shoplite-api', () =>
+                rollbackDeployment('shoplite-api', 'last known-good image', 'Manual mobile rollback command')
               )
             }
             className="w-full min-h-[50px] p-3 rounded-xl border flex items-center justify-between transition-all text-left cursor-pointer"
@@ -137,24 +176,24 @@ export const MobileControlsModal: React.FC<MobileControlsModalProps> = ({
               <RotateCcw className="text-[var(--status-info)]" size={20} />
               <div>
                 <p className="text-xs font-semibold text-[var(--text-primary)]">Roll Back shoplite-api</p>
-                <p className="text-[11px] text-[var(--text-secondary)]">Restore to known-good image v2.4.1-patch1</p>
+                <p className="text-[11px] text-[var(--text-secondary)]">Restore the last known-good image</p>
               </div>
             </div>
             <span
               className="text-[10px] font-mono uppercase px-2 py-0.5 rounded"
               style={{
-                backgroundColor: 'var(--status-warning-bg)',
-                color: 'var(--status-warning)',
+                backgroundColor: 'var(--surface-elevated)',
+                color: 'var(--text-secondary)',
               }}
             >
-              Tier 1
+              Tier 0
             </span>
           </button>
 
           {/* Take snapshot */}
           <button
             onClick={() =>
-              handleAction('PostgreSQL database state snapshot', () => {})
+              handleAction('Database state snapshot', takeSnapshot)
             }
             className="w-full min-h-[50px] p-3 rounded-xl border flex items-center justify-between transition-all text-left cursor-pointer"
             style={{
@@ -183,7 +222,7 @@ export const MobileControlsModal: React.FC<MobileControlsModalProps> = ({
           {/* Run integrity verification */}
           <button
             onClick={() =>
-              handleAction('Cryptographic Hash-Chain Verification', () => {})
+              handleAction('Cryptographic Hash-Chain Verification', verifyAuditChain)
             }
             className="w-full min-h-[50px] p-3 rounded-xl border flex items-center justify-between transition-all text-left cursor-pointer"
             style={{
@@ -195,7 +234,7 @@ export const MobileControlsModal: React.FC<MobileControlsModalProps> = ({
               <ShieldCheck className="text-[var(--accent-primary)]" size={20} />
               <div>
                 <p className="text-xs font-semibold text-[var(--text-primary)]">Run Hash-Chain Verification</p>
-                <p className="text-[11px] text-[var(--text-secondary)]">Verify SHA-256 links on all 1,482 audit blocks</p>
+                <p className="text-[11px] text-[var(--text-secondary)]">Verify SHA-256 links on all {auditChain ? auditChain.rows.toLocaleString() : ''} audit blocks</p>
               </div>
             </div>
             <span

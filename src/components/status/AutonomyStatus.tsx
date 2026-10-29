@@ -3,18 +3,31 @@ import { ShieldCheck, PauseCircle, PlayCircle, AlertTriangle, X } from 'lucide-r
 import { useAlexia } from '../../context/AlexiaContext';
 
 export const AutonomyStatus: React.FC = () => {
-  const { autonomyState, toggleAutonomy } = useAlexia();
+  const { autonomyState, toggleAutonomy, isLiveBackend } = useAlexia();
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [stepUpCode, setStepUpCode] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const isActive = autonomyState === 'Active';
+  // Pausing is the safe direction; resuming needs step-up (FR-M6)
+  const needsStepUp = !isActive && isLiveBackend;
 
   const handleToggle = () => {
+    setError(null);
+    setStepUpCode('');
     setShowConfirmModal(true);
   };
 
-  const confirmAction = () => {
-    toggleAutonomy();
-    setShowConfirmModal(false);
+  const confirmAction = async () => {
+    setBusy(true);
+    const res = await toggleAutonomy(needsStepUp ? stepUpCode : undefined);
+    setBusy(false);
+    if (res.success) {
+      setShowConfirmModal(false);
+    } else {
+      setError(res.message);
+    }
   };
 
   return (
@@ -99,6 +112,31 @@ export const AutonomyStatus: React.FC = () => {
               )}
             </p>
 
+            {needsStepUp && (
+              <div className="mb-4">
+                <label htmlFor="resume-step-up" className="block text-xs text-[var(--text-secondary)] mb-1 font-medium">
+                  Step-up verification (passkey / biometric, or 6-digit TOTP)
+                </label>
+                <input
+                  id="resume-step-up"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  placeholder="Demo code: 123456"
+                  value={stepUpCode}
+                  onChange={(e) => setStepUpCode(e.target.value.replace(/\D/g, ''))}
+                  className="web-input w-full text-xs font-mono tracking-widest"
+                />
+              </div>
+            )}
+
+            {error && (
+              <p className="mb-4 p-2.5 rounded-lg text-xs bg-[var(--status-critical-bg)] text-[var(--status-critical)] border border-[var(--status-critical-border)]">
+                {error}
+              </p>
+            )}
+
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-[var(--border-subtle)]">
               <button
                 type="button"
@@ -110,7 +148,8 @@ export const AutonomyStatus: React.FC = () => {
               <button
                 type="button"
                 onClick={confirmAction}
-                className="cyber-btn-primary text-xs"
+                disabled={busy || (needsStepUp && stepUpCode.length !== 6)}
+                className="cyber-btn-primary text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                 style={
                   isActive
                     ? {

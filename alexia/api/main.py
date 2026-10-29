@@ -28,13 +28,15 @@ from alexia.collectors.git_webhook import handle_webhook_payload, verify_github_
 from alexia.core.audit import get_audit_log
 from alexia.core.budget import get_budget_guard
 from alexia.core.bus import get_event_bus
+from alexia.core.llm import get_llm_client
+from alexia.core.maintenance import start_maintenance
 from alexia.core.orchestrator import get_orchestrator
 from alexia.core.schemas import Action, Incident, current_iso_timestamp, generate_id
 from alexia.remote.auth import get_auth_manager
 from alexia.remote.controls import get_remote_controller
 from alexia.remote.devices import get_device_manager
 from alexia.remote.push import get_push_manager
-from alexia.tools.snapshots import create_snapshot
+from alexia.tools.snapshots import create_snapshot, list_snapshots as list_snapshot_files
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("alexia.api")
@@ -218,9 +220,12 @@ async def lifespan(app: FastAPI):
         seed_initial_demo_state()
     except Exception as exc:
         logger.warning(f"Initial demo state seed warning: {exc}")
+    maintenance_tasks = start_maintenance()
     logger.info("Alexia Guardian running and ready.")
     yield
     logger.info("Shutting down Alexia Guardian...")
+    for task in maintenance_tasks:
+        task.cancel()
     await bus.stop()
 
 
@@ -330,7 +335,7 @@ async def health():
         "uptimeSec": uptime_sec,
         "internetUrl": os.environ.get("ALEXIA_INTERNET_URL", "") or None,
         "gateway": {
-            "mode": "live" if os.environ.get("NEBIUS_API_KEY") else "sandbox",
+            "mode": "live" if get_llm_client().is_live() else "sandbox",
         },
         "counts": {
             "incidents": len(open_incidents),
@@ -441,23 +446,29 @@ async def investigate_incident(incident_id: str):
     if not inc:
         raise HTTPException(status_code=404, detail="Incident not found")
 
-    from alexia.core.llm import get_llm_client
-
     llm = get_llm_client()
-    prompt = f"Investigate incident {inc.id}: {inc.title} ({inc.category}) on {inc.affected_service}. Summary: {inc.summary}"
-    call_record = await llm.complete(
+    # Ultra handles investigations of security / critical incidents; Super everything else (PRD 7.1)
+    tier = "ultra" if inc.category == "security" or inc.severity == "critical" else "super"
+    prompt = (
+        f"Investigate incident {inc.id}: {inc.title} ({inc.category}, {inc.severity}) on {inc.affected_service}.\n"
+        f"Summary: {inc.summary}\nRoot cause so far: {inc.diagnosis.root_cause or 'unknown'}\n"
+        f"Evidence: {inc.diagnosis.evidence[:5]}\n"
+        "Produce a concise investigation update: confirmed root cause, open questions, next safe action."
+    )
+    analysis, call_record = await asyncio.to_thread(
+        llm.complete,
+        tier=tier,
         prompt=prompt,
         task="investigation",
-        severity=inc.severity,
         incident_id=inc.id,
     )
-    if call_record.id not in inc.model_calls:
-        inc.model_calls.append(call_record.id)
-        inc.cost_usd = round(inc.cost_usd + call_record.cost_usd, 5)
+    inc.model_calls.append(call_record.id)
+    inc.cost_usd = round(inc.cost_usd + call_record.cost_usd, 5)
     bus.update_incident(inc, reason="Re-investigated via API")
     return {
         "status": "completed",
         "incident_id": inc.id,
+        "analysis": analysis,
         "diagnosis": inc.diagnosis.model_dump(),
         "model_trace": call_record.model_dump(),
     }
@@ -491,6 +502,7 @@ class ApprovalDecisionRequest(BaseModel):
     actor: Optional[str] = None
     reason: Optional[str] = None
     step_up_method: Optional[str] = None
+    step_up_token: Optional[str] = None
     token: Optional[str] = None
 
 
@@ -513,6 +525,14 @@ async def list_all_approvals_v1(pending_only: bool = False):
 def _execute_approval_decision(action_id: str, req: ApprovalDecisionRequest) -> Dict[str, Any]:
     mgr = get_approval_manager()
     actor_name = req.actor or req.decided_by or "operator"
+    if req.decision.lower() == "approved":
+        # Approving a Tier-1 action needs step-up within the last 5 minutes (FR-M5, PRD 9.5); rejecting is the safe direction
+        if not req.step_up_token:
+            raise HTTPException(status_code=401, detail="Approving requires step-up authentication (passkey/biometric or TOTP).")
+        valid, _, method = get_auth_manager().verify_step_up_token(req.step_up_token)
+        if not valid:
+            raise HTTPException(status_code=401, detail="Invalid or expired step-up authentication token.")
+        req.step_up_method = method
     success, message, data = mgr.decide(
         action_id=action_id,
         decision=req.decision,
@@ -654,8 +674,12 @@ async def verify_audit_chain_endpoint():
 def _get_services_list() -> List[Dict[str, Any]]:
     now_iso = current_iso_timestamp()
     bus = get_event_bus()
-    open_sqli = bus.get_incident("inc_s6_sqli_breach")
-    api_status = "degraded" if (open_sqli and open_sqli.status != "resolved") else "healthy"
+    # Newest unresolved incident on the target drives its card (degraded while a critical one is open)
+    api_open = next(
+        (i for i in bus.list_incidents(limit=50) if i.status != "resolved" and i.affected_service == "shoplite-api"),
+        None,
+    )
+    api_status = "degraded" if (api_open and api_open.severity == "critical") else "healthy"
     return [
         {
             "id": "svc_shoplite_api",
@@ -673,7 +697,7 @@ def _get_services_list() -> List[Dict[str, Any]]:
             "cpu_percent": 34.2,
             "memory_mb": 224,
             "disk_mb": 412,
-            "latest_incident_id": "inc_s6_sqli_breach",
+            "latest_incident_id": api_open.id if api_open else None,
             "ports": ["8000:8000"],
         },
         {
@@ -730,6 +754,25 @@ async def get_service_detail(service_id: str):
     raise HTTPException(status_code=404, detail="Service not found")
 
 
+@app.post("/services/{service_id}/restart")
+@app.post("/api/v1/services/{service_id}/restart")
+async def restart_service(service_id: str):
+    svc = next((s for s in _get_services_list() if s["id"] == service_id or s["name"] == service_id), None)
+    if not svc:
+        raise HTTPException(status_code=404, detail="Service not found")
+    success, msg, data = get_remote_controller().trigger_action(
+        action_name="restart_container",
+        target=svc["name"],
+        params={},
+        user="operator",
+        device_id="web_dashboard",
+    )
+    if not success:
+        raise HTTPException(status_code=400, detail=msg)
+    get_event_bus().broadcast_sse({"type": "service_restarted", "data": {"service_id": svc["id"], "result": data}})
+    return {"status": "queued" if data.get("queued") else "success", "message": msg, "service": svc, "result": data}
+
+
 @app.get("/deployments")
 @app.get("/api/v1/deployments")
 async def list_deployments():
@@ -774,10 +817,32 @@ class CreateSnapshotRequest(BaseModel):
     type: str = "full_bundle"
 
 
+def _all_snapshots() -> List[Dict[str, Any]]:
+    """Snapshots Integrity actually wrote to disk (pre-action + manual), newest first, then the seeded ones."""
+    seeded_ids = {s["id"] for s in _SNAPSHOTS_STATE}
+    on_disk = [
+        {
+            "id": meta["id"],
+            "incident_id": meta.get("incident_id") or "pre_action",
+            "service_name": meta.get("target", "shoplite-api"),
+            "created_at": meta.get("created_at"),
+            "type": "full_bundle",
+            "sha256": meta.get("sha256", ""),
+            "size_mb": round(meta.get("size_bytes", 0) / (1024 * 1024), 3),
+            "verified": bool(meta.get("sha256")),
+            "restorable": True,
+            "description": meta.get("description", ""),
+        }
+        for meta in list_snapshot_files()
+        if meta.get("id") not in seeded_ids
+    ]
+    return on_disk + _SNAPSHOTS_STATE
+
+
 @app.get("/snapshots")
 @app.get("/api/v1/snapshots")
 async def list_snapshots():
-    return _SNAPSHOTS_STATE
+    return _all_snapshots()
 
 
 @app.post("/snapshots")
@@ -795,11 +860,10 @@ async def create_snapshot_endpoint(req: Optional[CreateSnapshotRequest] = None):
         "created_at": meta["created_at"],
         "type": payload.type,
         "sha256": meta["sha256"],
-        "size_mb": 48.6,
+        "size_mb": round(meta.get("size_bytes", 0) / (1024 * 1024), 3),
         "verified": True,
         "restorable": True,
     }
-    _SNAPSHOTS_STATE.insert(0, snap_record)
     get_audit_log().record(
         event_type="SNAPSHOT_CREATED",
         actor="Human Operator",
@@ -814,27 +878,70 @@ async def create_snapshot_endpoint(req: Optional[CreateSnapshotRequest] = None):
 @app.post("/snapshots/{snapshot_id}/restore")
 @app.post("/api/v1/snapshots/{snapshot_id}/restore")
 async def restore_snapshot_endpoint(snapshot_id: str):
-    snap = next((s for s in _SNAPSHOTS_STATE if s["id"] == snapshot_id), None)
+    snap = next((s for s in _all_snapshots() if s["id"] == snapshot_id), None)
     if not snap:
         raise HTTPException(status_code=404, detail=f"Snapshot {snapshot_id} not found")
-    get_audit_log().record(
-        event_type="SNAPSHOT_RESTORED",
-        actor="Human Operator",
-        details={
-            "action": f"restore_snapshot({snapshot_id})",
-            "target": snap["service_name"],
-        },
+    # restore_snapshot is Tier 1 (PRD 9.1, FR-I4): queue it for step-up approval rather than restoring directly
+    action = Action(
+        action="restore_snapshot",
+        target=snap["service_name"],
+        tier=1,
+        params={"snapshot_id": snapshot_id},
+        reason=f"Operator requested restore of snapshot {snapshot_id}",
+        expected_outcome="Data restored from the snapshot, followed by a post-restore integrity check",
+        rollback="Take a fresh snapshot before restoring so the current state can be recovered",
+        requested_by="user:operator@device:web_dashboard",
     )
-    return {"status": "restored", "snapshot": snap}
+    success, msg, data = get_executor().execute(action)
+    if not success:
+        raise HTTPException(status_code=400, detail=msg)
+    return {"status": "queued_for_approval", "action_id": action.id, "message": msg, "snapshot": snap}
 
 
 # ---------------------------------------------------------------------------
 # Security Findings & Regulatory Breach Reports (Handover Section 2F & 4)
 # ---------------------------------------------------------------------------
+_REPORT_FRAMEWORKS = {
+    "cert_in": ("CERT-In", "CERT-In 6-Hour Cyber Incident Directive (India)", 6),
+    "dpdp": ("DPDP_ACT", "Digital Personal Data Protection Act (DPDP) Breach Notice", 72),
+    "gdpr": ("GDPR", "GDPR Article 33 Supervisory Authority Notification", 72),
+}
+
+
+def _collect_reports() -> List[Dict[str, Any]]:
+    """Breach-report drafts written by Sentinel on live incidents, newest first, then the seeded drafts."""
+    live: List[Dict[str, Any]] = []
+    for inc in get_event_bus().list_incidents(limit=100):
+        drafts = inc.metadata.get("reports") if isinstance(inc.metadata, dict) else None
+        if not isinstance(drafts, dict):
+            continue
+        exposure = inc.metadata.get("exposure_assessment") or {}
+        for key, body in drafts.items():
+            framework, label, hours = _REPORT_FRAMEWORKS.get(key, (key.upper(), key.upper(), 72))
+            live.append({
+                "id": f"rep_{key}_{inc.id}",
+                "incident_id": inc.id,
+                "framework": framework,
+                "framework_label": label,
+                "deadline_hours": hours,
+                "generated_at": inc.updated_at,
+                "status": "draft_ready",
+                "summary": inc.summary,
+                "affected_records_estimate": exposure.get("estimated_rows_exposed", 0),
+                "data_categories_exposed": exposure.get("affected_columns", []),
+                "containment_actions_taken": [a.reason or a.action for a in inc.plan],
+                "root_cause": inc.diagnosis.root_cause,
+                "remediation_status": inc.status,
+                "markdown": body if isinstance(body, str) else str(body),
+            })
+    return live + _REPORTS_STATE
+
+
 @app.get("/reports")
+@app.get("/api/v1/reports")
 @app.get("/api/v1/security/reports")
 async def list_security_reports():
-    return _REPORTS_STATE
+    return _collect_reports()
 
 
 @app.get("/api/v1/security/findings")
@@ -843,7 +950,7 @@ async def list_security_findings():
     sec_incidents = [inc.model_dump() for inc in bus.list_incidents() if inc.category in ("security", "data_integrity")]
     return {
         "findings": sec_incidents,
-        "reports": _REPORTS_STATE,
+        "reports": _collect_reports(),
         "redaction_layers": [
             "API Keys (OpenAI, Nebius, Tavily, Stripe, AWS, GitHub PAT)",
             "JWT Bearer Tokens, Session Cookies & OAuth Secrets",
@@ -907,8 +1014,8 @@ async def get_dashboard_overview():
         "approvals": all_approvals,
         "services": _get_services_list(),
         "deployments": _DEPLOYMENTS_STATE,
-        "snapshots": _SNAPSHOTS_STATE,
-        "reports": _REPORTS_STATE,
+        "snapshots": _all_snapshots(),
+        "reports": _collect_reports(),
         "model_summary": model_stats,
         "model_calls": model_stats.get("recent_calls", []),
         "audit": {
@@ -1040,10 +1147,11 @@ async def step_up_auth(req: StepUpRequest):
             raise HTTPException(status_code=400, detail="Invalid TOTP code. (Demo code: 123456 or 000000)")
         step_up_token = auth_mgr.create_step_up_token(req.username, method="totp")
         return {"status": "success", "step_up_token": step_up_token, "method": "totp"}
-    else:
-        # Biometric / Passkey step-up mock
+    if req.passkey_signature:
+        # Demo WebAuthn: the device-side biometric/passkey assertion is accepted as-is (FR-M12 demo mode)
         step_up_token = auth_mgr.create_step_up_token(req.username, method="biometric")
         return {"status": "success", "step_up_token": step_up_token, "method": "biometric"}
+    raise HTTPException(status_code=400, detail="Step-up requires a TOTP code or a passkey assertion.")
 
 
 @app.get("/remote/autonomy")
@@ -1114,9 +1222,28 @@ _STATIC_CANDIDATES = [
     "dashboard/static",
     os.path.join(getattr(_sys, "_MEIPASS", ""), "dashboard", "static"),
 ]
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as _StarletteHTTPException
+
+_API_PREFIXES = ("api/", "v1/", "remote/", "stream", "webhook/", "docs", "openapi.json", "redoc")
+
+
+class _SPAStaticFiles(StaticFiles):
+    """Serve index.html for client-side routes (e.g. push-notification deep links) but keep API 404s."""
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except _StarletteHTTPException as exc:
+            url_path = path.replace("\\", "/")  # StaticFiles hands over an OS path (backslashes on Windows)
+            leaf = url_path.rsplit("/", 1)[-1]
+            if exc.status_code == 404 and not url_path.startswith(_API_PREFIXES) and "." not in leaf:
+                return await super().get_response("index.html", scope)
+            raise
+
+
 for _static_dir in _STATIC_CANDIDATES:
     if _static_dir and os.path.exists(_static_dir):
-        from fastapi.staticfiles import StaticFiles
-        app.mount("/", StaticFiles(directory=_static_dir, html=True), name="static")
+        app.mount("/", _SPAStaticFiles(directory=_static_dir, html=True), name="static")
         break
 

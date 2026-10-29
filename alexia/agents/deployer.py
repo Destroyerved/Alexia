@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from alexia.actions.executor import get_executor
 from alexia.core.audit import get_audit_log
 from alexia.core.bus import get_event_bus
-from alexia.core.schemas import Action, Event, Incident, generate_id
+from alexia.core.schemas import Action, Diagnosis, Event, Incident, generate_id
 
 logger = logging.getLogger("alexia.deployer")
 
@@ -39,10 +39,12 @@ class DeployerAgent:
         migration_sql: str = "",
         service: str = "shoplite-api",
         force_deploy: bool = False,
+        event_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Execute the full pre-deploy gate and deployment lifecycle."""
         logger.info(f"Deployer received deployment request for commit {commit_sha[:8]}")
         deployment_id = generate_id("dep")
+        events = [event_id] if event_id else []
 
 
         # -------------------------------------------------------------------
@@ -62,11 +64,36 @@ class DeployerAgent:
                 category="security",
                 severity="critical",
                 owner_agent="sentinel",
+                status="acting",
+                events=events,
+                affected_service=service,
                 title=f"Deployment Blocked: Leaked secret in {commit_sha[:8]}",
                 summary=f"Secret scanner detected {leaked_secrets[0]['type']}. Deployment blocked before release.",
+                diagnosis=Diagnosis(
+                    root_cause=f"Hard-coded {leaked_secrets[0]['type']} committed in {commit_sha[:8]}",
+                    evidence=[f"{f['type']} matched as {f['match']}" for f in leaked_secrets]
+                    + ["Deployer pre-deploy gate blocked image promotion before release"],
+                    confidence=0.99,
+                ),
                 metadata={"service": service, "commit_sha": commit_sha, "leaked": leaked_secrets},
             )
             self.bus.create_incident(inc)
+            # Rotation is Tier-1 (FR-S5): queue it for a human with a pre-action snapshot
+            rotate = Action(
+                action="rotate_secret",
+                target=service,
+                tier=1,
+                params={"secret_name": leaked_secrets[0]["type"].upper().replace(" ", "_")},
+                reason=f"Rotate {leaked_secrets[0]['type']} exposed in commit {commit_sha[:8]}",
+                expected_outcome="Exposed credential revoked; new secret injected from the secret store",
+                rollback="Restore previous secret reference from the pre-action snapshot",
+                requested_by="agent:sentinel",
+            )
+            self.executor.execute(rotate, incident_id=inc.id)
+            inc.plan.append(rotate)
+            inc.approval_required = True
+            inc.approval_id = rotate.id
+            self.bus.update_incident(inc, reason="Secret rotation queued for approval")
             return {"status": "blocked", "reason": msg, "gate": "sentinel_secrets", "incident_id": inc.id}
 
         # -------------------------------------------------------------------
@@ -86,11 +113,38 @@ class DeployerAgent:
                     category="data_integrity",
                     severity="high",
                     owner_agent="integrity",
+                    status="acting",
+                    events=events,
+                    affected_service=service,
                     title=f"Deployment Blocked: Destructive migration in {commit_sha[:8]}",
                     summary=msg,
+                    diagnosis=Diagnosis(
+                        root_cause=mig_result["risk_summary"],
+                        evidence=[
+                            f"Dropped columns: {mig_result.get('dropped_columns') or []}",
+                            f"Dropped tables: {mig_result.get('dropped_tables') or []}",
+                            f"Records at risk: {mig_result.get('estimated_records_at_risk', 0)}",
+                        ],
+                        confidence=0.95,
+                    ),
                     metadata={"service": service, "commit_sha": commit_sha, "migration": mig_result},
                 )
                 self.bus.create_incident(inc)
+                run_mig = Action(
+                    action="run_migration",
+                    target=service,
+                    tier=1,
+                    params={"commit_sha": commit_sha},
+                    reason=f"Destructive migration puts {mig_result.get('estimated_records_at_risk', 0)} records at risk; human sign-off required",
+                    expected_outcome="Migration applied only after an approved pre-migration snapshot",
+                    rollback="Restore the pre-migration snapshot",
+                    requested_by="agent:integrity",
+                )
+                self.executor.execute(run_mig, incident_id=inc.id)
+                inc.plan.append(run_mig)
+                inc.approval_required = True
+                inc.approval_id = run_mig.id
+                self.bus.update_incident(inc, reason="Migration queued for approval")
                 return {"status": "blocked", "reason": msg, "gate": "integrity_migration", "incident_id": inc.id}
 
         # -------------------------------------------------------------------
@@ -110,12 +164,17 @@ class DeployerAgent:
                 category="code_bug",
                 severity="high",
                 owner_agent="builder",
+                events=events,
+                affected_service=service,
                 title=f"Deployment Blocked: Builder flagged bug in {commit_sha[:8]}",
                 summary=f"Critical issue found in diff: {review.findings[0] if review.findings else 'Code defect'}",
                 metadata={"service": service, "commit_sha": commit_sha, "findings": review.findings},
             )
             self.bus.create_incident(inc)
             return {"status": "blocked", "reason": msg, "gate": "builder_review", "incident_id": inc.id}
+        if review.has_critical_issue:
+            # Operator forced the release past a flagged review (S1): keep that decision on the audit chain
+            self._record_deploy_event(deployment_id, commit_sha, "forced_past_review", f"Findings: {review.findings}")
 
         # -------------------------------------------------------------------
         # Pre-Deploy Gates Passed -> Ship & Health Gate (FR-D3, FR-D4)
@@ -142,9 +201,13 @@ class DeployerAgent:
                 category="crash" if "502" in error_reason else "code_bug",
                 severity="high",
                 owner_agent="builder",
+                status="acting",
+                events=events,
+                affected_service=service,
                 title=f"Automatic Rollback on {service}",
                 summary=f"New deploy triggered 5xx errors ({error_reason}). Auto-rolled back in <60s.",
-                metadata={"service": service, "commit_sha": commit_sha, "error": error_reason},
+                plan=[rollback_action],
+                metadata={"service": service, "commit_sha": commit_sha, "error": error_reason, "deployment_id": deployment_id},
             )
             self.bus.create_incident(inc)
 

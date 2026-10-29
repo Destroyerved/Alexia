@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from alexia.core.budget import get_budget_guard
 from alexia.core.schemas import DiagnosticSource
+from alexia.core.paths import resolve_db_path
 
 logger = logging.getLogger("alexia.tavily")
 
@@ -27,7 +28,8 @@ class TavilySearchClient:
     """Grounds agent diagnoses in live web documentation and CVE databases."""
 
     def __init__(self, db_path: str = "data/alexia.db"):
-        self.db_path = db_path
+        # source_db_path is what singletons compare against; db_path may fall back to *.sqlite
+        self.db_path = self.source_db_path = resolve_db_path(db_path)
         self.api_key = os.getenv("TAVILY_API_KEY", "")
         self.budget_guard = get_budget_guard(db_path)
         self._lock = threading.Lock()

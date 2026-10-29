@@ -43,4 +43,3 @@ const api = {
 };
 
 contextBridge.exposeInMainWorld('alexia', api);
-contextBridge.exposeInMainWorld('veinzpay', api);

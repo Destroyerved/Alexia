@@ -16,7 +16,7 @@ import { StatusBadge } from '../../components/status/StatusBadge';
 import { formatCurrency, formatRelativeTime } from '../../lib/formatters';
 
 export const IncidentsView: React.FC = () => {
-  const { incidents, selectedIncidentId, setSelectedIncidentId } = useAlexia();
+  const { incidents, selectedIncidentId, setSelectedIncidentId, modelCalls } = useAlexia();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [severityFilter, setSeverityFilter] = useState<string>('all');
@@ -35,6 +35,8 @@ export const IncidentsView: React.FC = () => {
   });
 
   const selectedIncident = incidents.find((i) => i.id === selectedIncidentId) || null;
+  // FR-U2 reasoning trace: every model call made for this incident (model, tokens, latency, cost)
+  const incidentCalls = selectedIncident ? modelCalls.filter((c) => c.incident_id === selectedIncident.id) : [];
 
   return (
     <div className="space-y-6">
@@ -142,7 +144,7 @@ export const IncidentsView: React.FC = () => {
 
         {/* Selected Incident Detail Pane */}
         {selectedIncident && (
-          <div className="lg:col-span-6 xl:col-span-7 web-card p-6 space-y-5 sticky top-20">
+          <div className="lg:col-span-6 xl:col-span-7 web-card p-6 space-y-5 lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
             {/* Header */}
             <div className="flex items-start justify-between gap-3 pb-4 border-b border-[var(--border-subtle)]">
               <div>
@@ -283,6 +285,64 @@ export const IncidentsView: React.FC = () => {
                           </li>
                         ))}
                       </ul>
+                    </div>
+
+                    <div>
+                      <h4 className="font-semibold text-[var(--text-primary)] mb-1.5">Sources (Tavily)</h4>
+                      {selectedIncident.diagnosis.sources?.length ? (
+                        <ul className="space-y-1.5">
+                          {selectedIncident.diagnosis.sources.map((src, i) => (
+                            <li key={i}>
+                              <a
+                                href={src.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-[var(--accent-primary)] hover:underline"
+                              >
+                                {src.title}
+                                <ExternalLink size={11} />
+                              </a>
+                              {src.excerpt && <p className="text-[11px] text-[var(--text-muted)] mt-0.5">{src.excerpt}</p>}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-[var(--text-muted)]">No web sources were needed for this diagnosis.</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <h4 className="font-semibold text-[var(--text-primary)] mb-1.5">Reasoning Trace ({incidentCalls.length} model calls)</h4>
+                      {incidentCalls.length ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left font-mono text-[11px]">
+                            <thead className="text-[var(--text-muted)]">
+                              <tr>
+                                <th className="py-1 pr-3">Model</th>
+                                <th className="py-1 pr-3">Task</th>
+                                <th className="py-1 pr-3">Tokens</th>
+                                <th className="py-1 pr-3">Latency</th>
+                                <th className="py-1">Cost</th>
+                              </tr>
+                            </thead>
+                            <tbody className="text-[var(--text-secondary)]">
+                              {incidentCalls.map((c) => (
+                                <tr key={c.id}>
+                                  <td className="py-1 pr-3 text-[var(--accent-primary)]">{c.tier}</td>
+                                  <td className="py-1 pr-3">{c.task}</td>
+                                  <td className="py-1 pr-3">{c.input_tokens + c.output_tokens}</td>
+                                  <td className="py-1 pr-3">{Math.round(c.latency_ms)} ms</td>
+                                  <td className="py-1">{formatCurrency(c.cost_usd)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="text-[var(--text-muted)]">
+                          {selectedIncident.model_calls.length} model calls recorded; details are listed under Model Usage.
+                        </p>
+                      )}
                     </div>
                   </>
                 ) : (

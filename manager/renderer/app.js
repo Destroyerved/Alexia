@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  const api = window.alexia || window.veinzpay;
+  const api = window.alexia;
   const $ = (id) => document.getElementById(id);
   let state = {};
   let currentTab = 'dashboard';
@@ -467,7 +467,7 @@
   const SETTINGS = [
     ['AI Orchestration (Nebius Token Factory & Tavily)'],
     ['NEBIUS_API_KEY', 'Nebius API Key (NVIDIA Nemotron 3)', 'Leave empty for autonomous sandbox & deterministic fallback mode.', 'password'],
-    ['NEBIUS_BASE_URL', 'Nebius Base URL', 'OpenAI-compatible endpoint for Nebius Token Factory.', '', 'https://api.studio.nebius.ai/v1'],
+    ['NEBIUS_BASE_URL', 'Nebius Base URL', 'OpenAI-compatible endpoint for Nebius Token Factory.', '', 'https://api.tokenfactory.nebius.com/v1/'],
     ['TAVILY_API_KEY', 'Tavily Search API Key', 'Used by Healer & Sentinel for live CVE and advisory enrichment.', 'password'],
     ['DAILY_USD_BUDGET', 'Daily USD Spend Cap ($)', 'Hard daily model budget enforced by BudgetGuard.', '', '10.00'],
     ['DAILY_TOKEN_BUDGET', 'Daily Token Cap', 'Maximum daily tokens across Nano/Super/Ultra tiers.', '', '5000000'],

@@ -50,4 +50,5 @@ export interface DeploymentRecord {
     reason: string;
     executed_at: string;
   };
+  rollback_available?: boolean;
 }

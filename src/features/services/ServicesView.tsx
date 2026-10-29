@@ -17,6 +17,7 @@ export const ServicesView: React.FC = () => {
     services,
     deployments,
     rollbackDeployment,
+    restartService,
     setCurrentView,
     setSelectedIncidentId,
   } = useAlexia();
@@ -24,11 +25,22 @@ export const ServicesView: React.FC = () => {
   const [rollbackModalService, setRollbackModalService] = useState<ServiceItem | null>(null);
   const [rollbackReason, setRollbackReason] = useState('Revert to known good image tag');
   const [selectedService, setSelectedService] = useState<ServiceItem | null>(null);
+  const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const showResult = (res: { success: boolean; message: string }) => {
+    setFeedback({ ok: res.success, text: res.message });
+    setTimeout(() => setFeedback(null), 5000);
+  };
+
+  // Roll back to the previous image of the newest rollback-eligible deployment of this service
+  const rollbackTarget = rollbackModalService
+    ? deployments.find((d) => d.service_name === rollbackModalService.name && d.rollback_available !== false)
+    : undefined;
 
   const handleRollbackConfirm = async () => {
     if (!rollbackModalService) return;
-    const targetImage = 'shoplite-api:v2.4.1-patch1';
-    await rollbackDeployment(rollbackModalService.name, targetImage, rollbackReason);
+    const targetImage = rollbackTarget?.previous_known_good_image ?? 'last known-good image';
+    showResult(await rollbackDeployment(rollbackModalService.name, targetImage, rollbackReason));
     setRollbackModalService(null);
   };
 
@@ -43,6 +55,21 @@ export const ServicesView: React.FC = () => {
           Container microservices, health indicators, resource consumption, and rollback controls.
         </p>
       </div>
+
+      {feedback && (
+        <div
+          role="status"
+          className="p-3 rounded-xl border text-xs flex items-center gap-2"
+          style={{
+            backgroundColor: feedback.ok ? 'var(--status-success-bg)' : 'var(--status-critical-bg)',
+            borderColor: feedback.ok ? 'var(--status-success-border)' : 'var(--status-critical-border)',
+            color: feedback.ok ? 'var(--status-success)' : 'var(--status-critical)',
+          }}
+        >
+          {feedback.ok ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
+          <span>{feedback.text}</span>
+        </div>
+      )}
 
       {/* Main Service List */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -135,6 +162,17 @@ export const ServicesView: React.FC = () => {
             </div>
           </div>
 
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={async () => showResult(await restartService(selectedService.id))}
+              className="web-btn-secondary text-xs"
+            >
+              <RotateCcw size={13} />
+              <span>Restart container (Tier 0)</span>
+            </button>
+          </div>
+
           {selectedService.latest_incident_id && (
             <div className="p-3 rounded-lg bg-[var(--status-critical-bg)] border border-[var(--status-critical-border)] text-xs flex items-center justify-between">
               <div className="flex items-center gap-2 text-[var(--status-critical)]">
@@ -154,6 +192,62 @@ export const ServicesView: React.FC = () => {
           )}
         </div>
       )}
+
+      {/* Deployments (FR-U4: last deploy, current image, gates, rollback) */}
+      <div className="space-y-3">
+        <h2 className="text-base font-semibold text-[var(--text-primary)] flex items-center gap-2">
+          <GitCommit size={16} className="text-[var(--accent-primary)]" />
+          Deployments ({deployments.length})
+        </h2>
+        <div className="web-card overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-[var(--border-subtle)] text-[var(--text-muted)] text-[11px] bg-[var(--surface-hover)]">
+                <th className="py-2.5 px-3.5">Deployment</th>
+                <th className="py-2.5 px-3.5">Image</th>
+                <th className="py-2.5 px-3.5">Status</th>
+                <th className="py-2.5 px-3.5">Gates</th>
+                <th className="py-2.5 px-3.5">Started</th>
+                <th className="py-2.5 px-3.5"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--border-subtle)]">
+              {deployments.map((dep) => {
+                const gates = [...dep.pre_deploy_gates, ...dep.health_gates];
+                const gatesPassed = gates.filter((g) => g.passed).length;
+                return (
+                  <tr key={dep.id} className="hover:bg-[var(--surface-hover)] align-top">
+                    <td className="py-2.5 px-3.5 font-mono text-[var(--text-primary)]">{dep.id}</td>
+                    <td className="py-2.5 px-3.5 font-mono text-[var(--text-secondary)]">
+                      {dep.image_tag}
+                      <span className="block text-[10px] text-[var(--text-muted)]">prev: {dep.previous_known_good_image}</span>
+                    </td>
+                    <td className="py-2.5 px-3.5 text-[var(--text-primary)]">{dep.status}</td>
+                    <td className="py-2.5 px-3.5 text-[var(--text-secondary)]" title={gates.map((g) => `${g.passed ? 'PASS' : 'FAIL'} ${g.name}: ${g.details}`).join('\n')}>
+                      {gatesPassed}/{gates.length} passed
+                    </td>
+                    <td className="py-2.5 px-3.5 text-[var(--text-muted)] font-mono">{formatRelativeTime(dep.started_at)}</td>
+                    <td className="py-2.5 px-3.5 text-right">
+                      {dep.rollback_available && (
+                        <button
+                          type="button"
+                          onClick={async () =>
+                            showResult(await rollbackDeployment(dep.service_name, dep.previous_known_good_image, 'Operator rollback from Deployments', dep.id))
+                          }
+                          className="web-btn-secondary text-[11px]"
+                        >
+                          <RotateCcw size={12} />
+                          <span>Roll back</span>
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {/* Rollback Modal */}
       {rollbackModalService && (
@@ -179,7 +273,7 @@ export const ServicesView: React.FC = () => {
 
             <div className="p-3 rounded-lg bg-[var(--surface-hover)] border border-[var(--border-subtle)] text-xs space-y-1 font-mono">
               <p>Current: <span className="text-[var(--status-critical)]">{rollbackModalService.image}</span></p>
-              <p>Target: <span className="text-[var(--accent-primary)]">shoplite-api:v2.4.1-patch1</span></p>
+              <p>Target: <span className="text-[var(--accent-primary)]">{rollbackTarget?.previous_known_good_image ?? 'no rollback-eligible deployment'}</span></p>
             </div>
 
             <div>

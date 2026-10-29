@@ -214,7 +214,7 @@ ALEXIA_TUNNEL=
 
 # Nebius Token Factory (NVIDIA Nemotron 3) & Tavily Search API Keys
 NEBIUS_API_KEY=
-NEBIUS_BASE_URL=https://api.studio.nebius.ai/v1
+NEBIUS_BASE_URL=https://api.tokenfactory.nebius.com/v1/
 TAVILY_API_KEY=
 
 # Security & Budget Guardrails

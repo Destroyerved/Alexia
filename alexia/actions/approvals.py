@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from alexia.core.audit import get_audit_log
 from alexia.core.schemas import Action
+from alexia.core.paths import resolve_db_path
 
 logger = logging.getLogger("alexia.approvals")
 
@@ -31,8 +32,9 @@ class ApprovalManager:
     """Manages pending Tier-1 actions and cryptographic single-use approval tokens."""
 
     def __init__(self, db_path: str = "data/alexia.db"):
-        self.db_path = db_path
-        self.secret_key = os.getenv("ALEXIA_SECRET_KEY", DEFAULT_SECRET_KEY).encode("utf-8")
+        # source_db_path is what singletons compare against; db_path may fall back to *.sqlite
+        self.db_path = self.source_db_path = resolve_db_path(db_path)
+        self.secret_key = (os.getenv("ALEXIA_SECRET_KEY") or os.getenv("ALEXIA_JWT_SECRET") or DEFAULT_SECRET_KEY).encode("utf-8")
         self.token_ttl_seconds = 300  # 5 minutes
         self.audit = get_audit_log(db_path)
         self._lock = threading.Lock()
@@ -257,7 +259,8 @@ class ApprovalManager:
             "expected_outcome": r["expected_outcome"] or f"Safely execute {action_name} with pre-action snapshot protection",
             "rollback_plan": r["rollback"] or f"Restore pre-action snapshot {r['snapshot_id'] or 'snap_latest'}",
             "requesting_agent": agent_label,
-            "status": r["status"],
+            # A pending row past its 5-minute TTL can no longer be decided; report it as expired
+            "status": "expired" if r["status"] == "pending" and r["expires_at"] <= now else r["status"],
             "created_at": datetime.fromtimestamp(r["created_at"], tz=timezone.utc).isoformat(),
             "expires_at": datetime.fromtimestamp(r["expires_at"], tz=timezone.utc).isoformat(),
             "decided_by": r["decided_by"],
@@ -312,6 +315,6 @@ _global_approval_mgr: Optional[ApprovalManager] = None
 def get_approval_manager(db_path: str = "data/alexia.db") -> ApprovalManager:
     """Retrieve or initialize global ApprovalManager."""
     global _global_approval_mgr
-    if _global_approval_mgr is None or _global_approval_mgr.db_path != db_path:
+    if _global_approval_mgr is None or _global_approval_mgr.source_db_path != resolve_db_path(db_path):
         _global_approval_mgr = ApprovalManager(db_path=db_path)
     return _global_approval_mgr

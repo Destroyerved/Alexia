@@ -95,11 +95,25 @@ class HealerAgent:
         self.bus.update_incident(incident, reason="Healer executing remediation plan")
 
         all_actions_succeeded = True
+        queued_actions: List[Action] = []
         for act in incident.plan:
             success, msg, res_data = self.executor.execute(act, incident_id=incident.id)
             if not success:
                 all_actions_succeeded = False
                 logger.warning(f"Action {act.action} failed: {msg}")
+            elif res_data.get("queued"):
+                queued_actions.append(act)
+
+        # Kill switch engaged or Tier-1 plan: nothing ran, so wait for a human instead of "verifying" (FR-M6, S9)
+        if queued_actions:
+            incident.approval_required = True
+            incident.approval_id = queued_actions[0].id
+            incident.summary = (
+                f"{incident.summary} Awaiting human approval for: "
+                + ", ".join(a.action for a in queued_actions)
+            ).strip()
+            self.bus.update_incident(incident, reason="Remediation queued for human approval")
+            return incident
 
         # 5. Verify (FR-H5)
         incident.status = "verifying"

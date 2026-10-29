@@ -14,6 +14,7 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
+from alexia.core.paths import resolve_db_path
 
 logger = logging.getLogger("alexia.budget")
 
@@ -30,7 +31,8 @@ class BudgetGuard:
         daily_token_cap: Optional[int] = None,
         daily_usd_cap: Optional[float] = None,
     ):
-        self.db_path = db_path
+        # source_db_path is what singletons compare against; db_path may fall back to *.sqlite
+        self.db_path = self.source_db_path = resolve_db_path(db_path)
         token_cap = daily_token_cap if daily_token_cap is not None else (daily_token_limit if daily_token_limit is not None else 5_000_000)
         usd_cap = daily_usd_cap if daily_usd_cap is not None else (daily_usd_limit if daily_usd_limit is not None else 10.0)
         self.daily_token_limit = int(os.getenv("DAILY_TOKEN_BUDGET", str(token_cap)))
@@ -297,13 +299,24 @@ class BudgetGuard:
             (limit,),
         )
         rows = cur.fetchall()
+        # Every task name the agents/router actually record (llm.complete(task=...))
         task_to_agent = {
             "triage": "Sentinel",
+            "event_triage": "Healer",
+            "event_triage_escalated": "Healer",
             "investigation": "Sentinel",
+            "breach_investigation_timeline": "Sentinel",
             "diagnosis": "Healer",
+            "fix_planning": "Healer",
+            "runbook_matching": "Healer",
+            "push_summary": "Orchestrator",
             "breach_report": "Integrity",
+            "migration_risk_review": "Integrity",
             "diff_review": "Builder",
+            "pre_deploy_code_review": "Builder",
             "patch_gen": "Builder",
+            "code_patch_generation": "Builder",
+            "patch_security_review": "Builder",
             "deploy_gate": "Deployer",
         }
         calls = []
@@ -388,7 +401,7 @@ _global_budget_guard: Optional[BudgetGuard] = None
 def get_budget_guard(db_path: str = "data/alexia.db") -> BudgetGuard:
     """Retrieve or initialize the global BudgetGuard singleton."""
     global _global_budget_guard
-    if _global_budget_guard is None or _global_budget_guard.db_path != db_path:
+    if _global_budget_guard is None or _global_budget_guard.source_db_path != resolve_db_path(db_path):
         _global_budget_guard = BudgetGuard(db_path=db_path)
     return _global_budget_guard
 

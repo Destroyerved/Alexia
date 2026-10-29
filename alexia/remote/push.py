@@ -16,6 +16,7 @@ import threading
 from typing import Any, Dict, List, Optional
 
 from alexia.core.schemas import Notification
+from alexia.core.paths import resolve_db_path
 
 logger = logging.getLogger("alexia.push")
 
@@ -24,7 +25,8 @@ class PushManager:
     """Manages Web Push subscriptions and notification dispatch."""
 
     def __init__(self, db_path: str = "data/alexia.db"):
-        self.db_path = db_path
+        # source_db_path is what singletons compare against; db_path may fall back to *.sqlite
+        self.db_path = self.source_db_path = resolve_db_path(db_path)
         self.vapid_private_key = os.getenv("VAPID_PRIVATE_KEY", "")
         self.vapid_public_key = os.getenv("VAPID_PUBLIC_KEY", "")
         self.vapid_claims_email = os.getenv("VAPID_CLAIMS_EMAIL", "admin@alexia-guardian.dev")
@@ -129,6 +131,34 @@ def get_push_manager() -> PushManager:
     return _global_push_mgr
 
 
+def send_ntfy_alert(notification: Notification) -> bool:
+    """Mirror high/critical alerts to the ntfy topic the installer sets up (ALEXIA_ALERT_NTFY).
+
+    The title/body are the already-redacted push one-liner (FR-M3), never incident details.
+    """
+    url = os.getenv("ALEXIA_ALERT_NTFY", "").strip()
+    if not url or notification.severity not in ("critical", "high"):
+        return False
+    try:
+        import httpx
+
+        resp = httpx.post(
+            url,
+            content=notification.body.encode("utf-8"),
+            headers={
+                "Title": notification.title.encode("ascii", "replace").decode("ascii"),
+                "Priority": "urgent" if notification.severity == "critical" else "high",
+                "Tags": "rotating_light" if notification.severity == "critical" else "warning",
+            },
+            timeout=5.0,
+        )
+        return resp.status_code < 300
+    except Exception as e:
+        logger.warning(f"ntfy alert failed: {e}")
+        return False
+
+
 def send_push_notification(notification: Notification) -> int:
-    """Top-level helper to broadcast a push notification."""
+    """Top-level helper to broadcast a push notification (Web Push devices + optional ntfy topic)."""
+    send_ntfy_alert(notification)
     return get_push_manager().send(notification)

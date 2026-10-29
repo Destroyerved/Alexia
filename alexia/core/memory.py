@@ -16,6 +16,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from alexia.core.schemas import Action
+from alexia.core.paths import resolve_db_path
 
 logger = logging.getLogger("alexia.memory")
 
@@ -24,7 +25,8 @@ class RunbookMemory:
     """Manages persistent incident-to-fix runbooks in SQLite."""
 
     def __init__(self, db_path: str = "data/alexia.db"):
-        self.db_path = db_path
+        # source_db_path is what singletons compare against; db_path may fall back to *.sqlite
+        self.db_path = self.source_db_path = resolve_db_path(db_path)
         os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
         self._lock = threading.Lock()
         self._init_db()
@@ -199,6 +201,6 @@ _global_memory: Optional[RunbookMemory] = None
 def get_runbook_memory(db_path: str = "data/alexia.db") -> RunbookMemory:
     """Retrieve or initialize global RunbookMemory."""
     global _global_memory
-    if _global_memory is None or _global_memory.db_path != db_path:
+    if _global_memory is None or _global_memory.source_db_path != resolve_db_path(db_path):
         _global_memory = RunbookMemory(db_path=db_path)
     return _global_memory

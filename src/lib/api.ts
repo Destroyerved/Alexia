@@ -26,15 +26,17 @@ const CANDIDATE_BASES = [
 
 export interface DashboardPayload {
   autonomy_mode: 'autonomous' | 'paused';
+  settings?: Record<string, unknown>;
   is_autonomy_paused: boolean;
   open_incidents_count: number;
   pending_approvals_count: number;
   incidents: Incident[];
   approvals: ApprovalRequest[];
   services: ServiceHealth[];
-  deployments: DeploymentRecord[];
-  snapshots: SnapshotRecord[];
-  reports: SecurityReport[];
+  // Raw backend records; mapped onto view models by src/lib/adapters.ts
+  deployments: Record<string, any>[];
+  snapshots: Record<string, any>[];
+  reports: Record<string, any>[];
   model_summary: ModelUsageSummary;
   model_calls: ModelCallRecord[];
   audit: {
@@ -44,12 +46,33 @@ export interface DashboardPayload {
   };
 }
 
+export interface ActionResult {
+  success: boolean;
+  message: string;
+}
+
+/** Pull FastAPI's `detail` out of an error response. */
+async function errorDetail(res: Response): Promise<string> {
+  try {
+    const body = await res.json();
+    if (typeof body?.detail === 'string') return body.detail;
+  } catch {
+    // non-JSON error body
+  }
+  return `Request failed (HTTP ${res.status})`;
+}
+
 export class AlexiaApiClient {
   private isConnectedToRealBackend = false;
   private activeBaseUrl = import.meta.env.VITE_API_URL || '';
 
   getBaseUrl(): string {
     return this.activeBaseUrl;
+  }
+
+  /** Live SSE stream on the same backend the REST calls use. */
+  getEventStreamUrl(): string {
+    return `${this.activeBaseUrl}/api/v1/events`;
   }
 
   async checkHealth(): Promise<{ connected: boolean; version?: string }> {
@@ -132,25 +155,43 @@ export class AlexiaApiClient {
     return INITIAL_APPROVALS;
   }
 
+  /** Step-up authentication (TOTP fallback for passkey/biometric) -> 5-minute elevation token. */
+  async stepUp(totpCode: string, username: string = 'demo'): Promise<{ token?: string; error?: string }> {
+    try {
+      const res = await fetch(`${this.activeBaseUrl}/remote/auth/step-up`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ totp_code: totpCode, username }),
+      });
+      if (!res.ok) return { error: await errorDetail(res) };
+      return { token: (await res.json()).step_up_token };
+    } catch {
+      return { error: 'Alexia server unreachable' };
+    }
+  }
+
   async submitApprovalDecision(
     approvalId: string,
     decision: 'approved' | 'rejected',
     reason?: string,
-    actor: string = 'Operator (Passkey Verified)'
-  ): Promise<{ success: boolean; message: string }> {
+    actor: string = 'Operator (Passkey Verified)',
+    stepUpToken?: string
+  ): Promise<ActionResult> {
     if (this.isConnectedToRealBackend) {
       try {
         const res = await fetch(`${this.activeBaseUrl}/api/v1/approvals/${approvalId}/decision`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ decision, reason, decided_by: actor, actor }),
+          body: JSON.stringify({ decision, reason, decided_by: actor, actor, step_up_token: stepUpToken }),
         });
         if (res.ok) {
           const data = await res.json();
           return { success: true, message: data.message || `Action ${approvalId} ${decision}` };
         }
+        return { success: false, message: await errorDetail(res) };
       } catch (err) {
         console.error('Approval submission error', err);
+        return { success: false, message: 'Alexia server unreachable; decision not recorded.' };
       }
     }
     await new Promise((r) => setTimeout(r, 400));
@@ -160,34 +201,59 @@ export class AlexiaApiClient {
     };
   }
 
-  async toggleAutonomy(pause: boolean, user: string = 'Operator (Passkey Verified)'): Promise<{ is_paused: boolean }> {
+  async toggleAutonomy(
+    pause: boolean,
+    user: string = 'Operator (Passkey Verified)',
+    stepUpToken?: string
+  ): Promise<ActionResult & { is_paused: boolean }> {
     if (this.isConnectedToRealBackend) {
       try {
         const res = await fetch(`${this.activeBaseUrl}/remote/autonomy`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pause, user, device_id: 'web_dashboard' }),
+          body: JSON.stringify({ pause, user, device_id: 'web_dashboard', step_up_token: stepUpToken }),
         });
-        if (res.ok) return await res.json();
+        if (res.ok) {
+          const data = await res.json();
+          return { success: true, message: data.message, is_paused: data.is_paused };
+        }
+        return { success: false, message: await errorDetail(res), is_paused: !pause };
       } catch (err) {
         console.warn('Autonomy toggle error', err);
+        return { success: false, message: 'Alexia server unreachable', is_paused: !pause };
       }
     }
-    return { is_paused: pause };
+    return { success: true, message: pause ? 'Autonomy paused' : 'Autonomy resumed', is_paused: pause };
   }
 
-  async rollbackDeployment(deploymentId: string): Promise<{ status: string }> {
+  async rollbackDeployment(deploymentId: string): Promise<ActionResult> {
     if (this.isConnectedToRealBackend) {
       try {
         const res = await fetch(`${this.activeBaseUrl}/api/v1/deployments/${deploymentId}/rollback`, {
           method: 'POST',
         });
-        if (res.ok) return await res.json();
+        if (res.ok) {
+          const data = await res.json();
+          return { success: true, message: `Rolled back to ${data.restored_version}` };
+        }
+        return { success: false, message: await errorDetail(res) };
       } catch (err) {
         console.warn('Rollback deployment error', err);
+        return { success: false, message: 'Alexia server unreachable' };
       }
     }
-    return { status: 'success' };
+    return { success: true, message: 'Rolled back (demo mode)' };
+  }
+
+  async restartService(serviceId: string): Promise<ActionResult> {
+    if (!this.isConnectedToRealBackend) return { success: true, message: 'Restart simulated (demo mode)' };
+    try {
+      const res = await fetch(`${this.activeBaseUrl}/api/v1/services/${serviceId}/restart`, { method: 'POST' });
+      if (res.ok) return { success: true, message: (await res.json()).message };
+      return { success: false, message: await errorDetail(res) };
+    } catch {
+      return { success: false, message: 'Alexia server unreachable' };
+    }
   }
 
   async createSnapshot(serviceName: string = 'shoplite-api + shoplite-db'): Promise<SnapshotRecord | null> {
@@ -218,15 +284,19 @@ export class AlexiaApiClient {
     return null;
   }
 
-  async runScenario(scenarioId: ScenarioId): Promise<{ run_id: string; status: string; incident_id?: string }> {
+  async runScenario(
+    scenarioId: ScenarioId
+  ): Promise<{ run_id: string; status: string; incident_id?: string; description?: string; error?: string }> {
     if (this.isConnectedToRealBackend) {
       try {
         const res = await fetch(`${this.activeBaseUrl}/api/v1/scenarios/${scenarioId}/run`, {
           method: 'POST',
         });
         if (res.ok) return await res.json();
+        return { run_id: '', status: 'failed', error: await errorDetail(res) };
       } catch (err) {
         console.error('Scenario run error', err);
+        return { run_id: '', status: 'failed', error: 'Alexia server unreachable' };
       }
     }
     await new Promise((r) => setTimeout(r, 400));
@@ -234,6 +304,17 @@ export class AlexiaApiClient {
       run_id: `RUN-${scenarioId}-${Date.now().toString().slice(-4)}`,
       status: 'starting',
     };
+  }
+
+  async getScenarios(): Promise<Record<string, any>[] | null> {
+    if (!this.isConnectedToRealBackend) return null;
+    try {
+      const res = await fetch(`${this.activeBaseUrl}/api/v1/scenarios`);
+      if (res.ok) return await res.json();
+    } catch (err) {
+      console.warn('Scenario catalog fetch failed', err);
+    }
+    return null;
   }
 
   async resetEnvironment(): Promise<{ success: boolean }> {
