@@ -262,15 +262,30 @@ export const OverviewView: React.FC = () => {
                   key={agent.id}
                   className="flex items-center justify-between py-1 border-b border-[var(--border-subtle)] last:border-none"
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-[var(--text-primary)]">
-                      {agent.name}
-                    </span>
-                    <span className="text-[10px] text-[var(--text-muted)] hidden sm:inline">
-                      {agent.role_description.split(',')[0]}
-                    </span>
+                  <div className="min-w-0" title={agent.role_description}>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-[var(--text-primary)]">
+                        {agent.name}
+                      </span>
+                      <span className="text-[10px] text-[var(--text-muted)] font-mono">
+                        {agent.total_actions_today} actions today
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-[var(--text-muted)] truncate" title={agent.current_task}>
+                      {agent.state === 'Idle' ? agent.latest_event : agent.current_task}
+                    </p>
                   </div>
-                  <span className="text-[10px] font-mono text-[var(--accent-primary)] uppercase">
+                  <span
+                    className="text-[10px] font-mono uppercase shrink-0 ml-2"
+                    style={{
+                      color:
+                        agent.state === 'Waiting for approval'
+                          ? 'var(--status-warning)'
+                          : agent.state === 'Working'
+                          ? 'var(--accent-primary)'
+                          : 'var(--text-muted)',
+                    }}
+                  >
                     {agent.state}
                   </span>
                 </div>

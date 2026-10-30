@@ -89,4 +89,26 @@ export interface Incident {
   model_calls: string[];
   verification?: VerificationEvidence;
   is_demo?: boolean;
+  metadata?: {
+    code_fix?: CodeFix;
+    proof_of_fix?: { failed_before: boolean; passed_after: boolean; before_log: string; after_log: string };
+    [key: string]: unknown;
+  };
+}
+
+/** What Builder wrote and how the sandbox judged it (alexia/agents/builder.py). */
+export interface CodeFix {
+  target_file: string;
+  root_cause: string;
+  explanation: string;
+  failing_test: string;
+  patch: string;
+  proven: boolean;
+  summary: string;
+  patch_applied: boolean;
+  base_note?: string;
+  test_runner?: string;
+  attempts: Array<{ attempt: number; model_tier: string; summary: string }>;
+  security_review?: string;
+  pr?: { number: number; html_url: string; mode?: string };
 }

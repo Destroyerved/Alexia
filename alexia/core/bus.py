@@ -35,6 +35,8 @@ class EventBus:
         self._running = False
         self._worker_task: Optional[asyncio.Task] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._in_flight = 0  # published events whose subscribers have not finished yet
+        self._dispatch_tasks: Set[asyncio.Task] = set()  # keeps running handler tasks referenced
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -127,21 +129,28 @@ class EventBus:
         self._sse_listeners.discard(q)
 
     async def start(self) -> None:
-        """Start the async event processing loop."""
-        if self._running:
+        """Start the async event processing loop (rebinding if a previous event loop has gone away)."""
+        loop = asyncio.get_running_loop()
+        if self._running and self._loop is loop:
             return
+        # The singleton can outlive the loop it first ran on (an in-process app restart, or test runs);
+        # asyncio queues and tasks are tied to one loop, so start fresh on the current one.
         self._running = True
-        self._loop = asyncio.get_running_loop()
-        self._worker_task = asyncio.create_task(self._process_queue())
+        self._loop = loop
+        self._queue = asyncio.Queue()
+        self._in_flight = 0
+        self._worker_task = loop.create_task(self._process_queue())
         logger.info("Alexia EventBus started.")
 
     async def stop(self) -> None:
         """Stop the event processing loop."""
         self._running = False
-        if self._worker_task:
-            self._worker_task.cancel()
+        task, self._worker_task = self._worker_task, None
+        # Only a task on this loop can be awaited; one from a closed loop is already dead
+        if task and task.get_loop() is asyncio.get_running_loop():
+            task.cancel()
             try:
-                await self._worker_task
+                await task
             except asyncio.CancelledError:
                 pass
         logger.info("Alexia EventBus stopped.")
@@ -152,6 +161,7 @@ class EventBus:
     async def publish(self, event: Event) -> None:
         """Publish an event to the bus and persist it immediately."""
         self._persist_event(event)
+        self._in_flight += 1
         await self._queue.put(event)
 
         # Broadcast immediately to SSE listeners for live timeline updates
@@ -196,18 +206,30 @@ class EventBus:
                 if "*" in self._subscribers:
                     callbacks.extend(self._subscribers["*"])
 
-                # Execute subscribers concurrently
-                if callbacks:
-                    tasks = [asyncio.create_task(cb(event)) for cb in callbacks]
-                    for result in await asyncio.gather(*tasks, return_exceptions=True):
-                        if isinstance(result, Exception):
-                            logger.error(f"Handler failed for event {event.id} ({event.kind}): {result!r}", exc_info=result)
-
-                self._queue.task_done()
+                # Handle each event in its own task: a long agent loop (Builder iterating on a fix) must not
+                # delay detection of the next event (NFR1). drain() still waits for every handler to finish.
+                task = asyncio.create_task(self._dispatch(event, callbacks))
+                self._dispatch_tasks.add(task)
+                task.add_done_callback(self._dispatch_tasks.discard)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Error in EventBus queue processor: {e}", exc_info=True)
+
+    async def _dispatch(self, event: Event, callbacks: List[Callable[[Event], Coroutine[Any, Any, None]]]) -> None:
+        try:
+            if callbacks:
+                results = await asyncio.gather(*(cb(event) for cb in callbacks), return_exceptions=True)
+                for result in results:
+                    if isinstance(result, Exception):
+                        logger.error(f"Handler failed for event {event.id} ({event.kind}): {result!r}", exc_info=result)
+        finally:
+            self._in_flight -= 1
+            self._queue.task_done()
+
+    def is_busy(self) -> bool:
+        """True while any published event is still being handled (e.g. an agent loop is running)."""
+        return self._in_flight > 0
 
     async def drain(self) -> None:
         """Wait until every published event has been fully handled by its subscribers."""

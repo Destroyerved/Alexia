@@ -40,8 +40,9 @@ def test_no_hardcoded_admin_login():
 
 
 def test_investigate_reports_restart_and_spa_routes():
+    with TestClient(app) as seeded:  # lifespan seeds the demo incidents on an empty database
+        inc_id = seeded.get("/api/v1/incidents").json()[0]["id"]
     client = TestClient(app)
-    inc_id = client.get("/api/v1/incidents").json()[0]["id"]
     r = client.post(f"/api/v1/incidents/{inc_id}/investigate")
     assert r.status_code == 200 and r.json()["status"] == "completed"
 
@@ -95,3 +96,55 @@ def test_gateway_mode_reports_sandbox_without_real_key():
     client = TestClient(app)
     expected = "live" if get_llm_client().is_live() else "sandbox"
     assert client.get("/health").json()["gateway"]["mode"] == expected
+
+
+def test_public_demo_scenario_guard(monkeypatch):
+    """With a cooldown configured, proxied (public) callers get one scenario per window; the local operator is exempt."""
+    monkeypatch.setenv("ALEXIA_SCENARIO_COOLDOWN_SECONDS", "60")
+    import alexia.api.main as api_main
+
+    monkeypatch.setattr(api_main, "_last_public_scenario_at", 0.0)
+    client = TestClient(app)
+    public = {"X-Forwarded-For": "198.51.100.7"}
+    assert client.post("/api/v1/scenarios/S3_DISK/run", headers=public).status_code == 200
+    second = client.post("/api/v1/scenarios/S5_BRUTE/run", headers=public)
+    assert second.status_code == 429 and "Retry-After" in second.headers
+    assert client.post("/api/v1/scenarios/S5_BRUTE/run").status_code == 200  # operator on the box
+
+
+def test_agents_endpoint_reports_live_state():
+    client = TestClient(app)
+    agents = client.get("/api/v1/agents").json()
+    assert {a["id"] for a in agents} == {"sentinel", "healer", "builder", "deployer", "integrity"}
+    assert all(a["state"] in ("Idle", "Working", "Waiting for approval") for a in agents)
+
+
+def test_mini_runner_reports_pass_and_fail(tmp_path):
+    """The exe's built-in runner (no pytest bundled) must report failures honestly."""
+    import subprocess
+    import sys
+
+    (tmp_path / "test_ok.py").write_text("def test_a():\n    assert 1 + 1 == 2\n")
+    (tmp_path / "test_bad.py").write_text("def test_b():\n    assert 1 + 1 == 3, 'math'\n")
+    run = lambda f: subprocess.run([sys.executable, "-m", "alexia.tools.mini_pytest", f], cwd=tmp_path,
+                                   capture_output=True, text=True, env={**os.environ, "PYTHONPATH": os.getcwd()})
+    ok, bad = run("test_ok.py"), run("test_bad.py")
+    assert ok.returncode == 0 and "1 passed, 0 failed" in ok.stdout
+    assert bad.returncode == 1 and "AssertionError: math" in bad.stdout
+
+
+def test_seed_on_fresh_database_completes(tmp_path, monkeypatch):
+    """First start of a fresh install seeds demo state; it used to crash on a missing BudgetGuard method."""
+    import alexia.actions.approvals as approvals_mod
+    import alexia.core.audit as audit_mod
+    import alexia.core.budget as budget_mod
+    import alexia.core.bus as bus_mod
+    from alexia.api.demo import seed_initial_demo_state
+
+    monkeypatch.setenv("ALEXIA_DATA_DIR", str(tmp_path))
+    for mod, name in ((bus_mod, "_global_bus"), (audit_mod, "_global_audit_log"),
+                      (budget_mod, "_global_budget_guard"), (approvals_mod, "_global_approval_mgr")):
+        monkeypatch.setattr(mod, name, None)
+    seed_initial_demo_state()  # must not raise
+    assert bus_mod.get_event_bus().get_incident("inc_s6_sqli_breach") is not None
+    assert budget_mod.get_budget_guard().get_daily_stats()["total_tavily_calls"] >= 1

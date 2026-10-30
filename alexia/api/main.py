@@ -970,9 +970,37 @@ async def list_scenarios():
     return SCENARIO_CATALOG
 
 
+_last_public_scenario_at = 0.0
+
+
+def _is_local_operator(request: Request) -> bool:
+    """Loopback caller that did not come through a proxy/tunnel (those add forwarding headers)."""
+    host = request.client.host if request.client else ""
+    forwarded = (
+        request.headers.get("cf-connecting-ip")
+        or request.headers.get("x-forwarded-for")
+        or request.headers.get("x-real-ip")
+    )
+    return host in ("127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost", "testclient") and not forwarded
+
+
 @app.post("/scenarios/{scenario_id}/run")
 @app.post("/api/v1/scenarios/{scenario_id}/run")
-async def trigger_scenario(scenario_id: str):
+async def trigger_scenario(scenario_id: str, request: Request):
+    # Public demo guard (FR-U6, NFR5): one scenario at a time plus a global cooldown, so a shared URL
+    # cannot burn Token Factory credits. Enabled by ALEXIA_SCENARIO_COOLDOWN_SECONDS; the local operator is exempt.
+    global _last_public_scenario_at
+    cooldown = float(os.environ.get("ALEXIA_SCENARIO_COOLDOWN_SECONDS", "0") or 0)
+    guarded = cooldown > 0 and not _is_local_operator(request)
+    if guarded:
+        if get_event_bus().is_busy():
+            raise HTTPException(status_code=429, detail="Another scenario is still running. Try again shortly.",
+                                headers={"Retry-After": "15"})
+        wait = _last_public_scenario_at + cooldown - _time.time()
+        if wait > 0:
+            raise HTTPException(status_code=429, detail=f"Scenario cooldown: try again in {int(wait) + 1}s.",
+                                headers={"Retry-After": str(int(wait) + 1)})
+        _last_public_scenario_at = _time.time()
     res = await run_scenario(scenario_id)
     if "error" in res:
         raise HTTPException(status_code=400, detail=res["error"])
@@ -989,6 +1017,65 @@ async def reset_demo():
 # ---------------------------------------------------------------------------
 # Overview Dashboard & Settings (Handover Section 2A, 2I & 4)
 # ---------------------------------------------------------------------------
+_AGENT_ROLES = {
+    "sentinel": "Breach detection, containment, evidence and breach-report drafts",
+    "healer": "Runtime triage, diagnosis, recovery and verification",
+    "builder": "Writes regression tests and patches, proves them red-to-green, opens PRs",
+    "deployer": "Gated deploys, health gate and automatic rollback",
+    "integrity": "Snapshots, migration guard and data-exposure assessment",
+}
+
+
+def _agent_status() -> List[Dict[str, Any]]:
+    """Live agent cards: state from open incidents, activity from each agent's audit-chain entries."""
+    import json as _json
+    import sqlite3 as _sqlite3
+    from datetime import datetime as _dt, timedelta, timezone as _tz
+
+    now = _dt.now(_tz.utc)
+    today = now.date().isoformat()
+    recent_cutoff = (now - timedelta(minutes=5)).isoformat()
+    pending_ids = {a["id"] for a in get_approval_manager().list_pending()}
+    incidents = [i for i in get_event_bus().list_incidents(limit=100) if i.status not in ("resolved", "escalated")]
+    agents: List[Dict[str, Any]] = []
+    with _sqlite3.connect(get_audit_log().db_path, timeout=10) as conn:
+        for agent_id, role in _AGENT_ROLES.items():
+            actor = f"agent:{agent_id}"
+            today_count = conn.execute(
+                "SELECT COUNT(*) FROM audit_log WHERE actor = ? AND timestamp >= ?", (actor, today)
+            ).fetchone()[0]
+            latest = conn.execute(
+                "SELECT timestamp, event_type, details_json FROM audit_log WHERE actor = ? ORDER BY id DESC LIMIT 1",
+                (actor,),
+            ).fetchone()
+            owned = [i for i in incidents if i.owner_agent == agent_id]
+            # Waiting only on approvals that can still be decided; "working" only on incidents touched recently
+            waiting = next((i for i in owned if i.approval_required and i.approval_id in pending_ids), None)
+            working = next((i for i in owned if not i.approval_required and i.updated_at >= recent_cutoff), None)
+            if latest:
+                details = _json.loads(latest[2] or "{}")
+                what = details.get("action") or details.get("status") or ""
+                target = details.get("target") or details.get("commit_sha") or ""
+                latest_event = " ".join(x for x in (latest[1].replace("_", " "), str(what), str(target)) if x)
+            agents.append({
+                "id": agent_id,
+                "name": agent_id.title(),
+                "role_description": role,
+                "state": "Waiting for approval" if waiting else ("Working" if working else "Idle"),
+                "current_task": (waiting or working).title if (waiting or working) else "Standing by",
+                "latest_event": latest_event if latest else "No actions recorded yet",
+                "latest_event_time": latest[0] if latest else current_iso_timestamp(),
+                "total_actions_today": today_count,
+            })
+    return agents
+
+
+@app.get("/agents")
+@app.get("/api/v1/agents")
+async def list_agents():
+    return _agent_status()
+
+
 @app.get("/api/v1/dashboard")
 @app.get("/dashboard")
 async def get_dashboard_overview():
@@ -1024,6 +1111,7 @@ async def get_dashboard_overview():
             "entries": [e.model_dump() for e in audit_entries],
         },
         "settings": _SETTINGS_STATE,
+        "agents": _agent_status(),
     }
 
 

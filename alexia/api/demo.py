@@ -225,6 +225,29 @@ _SCENARIO_KEYWORDS = {
 }
 
 
+def build_s1_bad_commit() -> str:
+    """S1's buggy commit as a real diff against ShopLite: it deletes the empty-cart guard in
+    /orders/total, so the deployed code raises ZeroDivisionError for item_count=0."""
+    from alexia.tools.diffutil import make_diff
+    from alexia.tools.sandbox import get_sandbox_runner
+
+    src = get_sandbox_runner().read_workspace_file("app/main.py")
+    lines = src.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if "if item_count == 0" in line:
+            indent = len(line) - len(line.lstrip())
+            end = i + 1
+            while end < len(lines) and (not lines[end].strip() or len(lines[end]) - len(lines[end].lstrip()) > indent):
+                end += 1
+            return make_diff("app/main.py", src, "".join(lines[:i] + lines[end:]))
+    # Guard already missing (or file changed): fall back to an illustrative diff the scanners still flag
+    return (
+        "--- a/app/main.py\n+++ b/app/main.py\n@@ -1,1 +1,1 @@\n"
+        "-    return round(subtotal / max(item_count, 1), 2)\n"
+        "+    return round(subtotal / item_count, 2)\n"
+    )
+
+
 def normalize_scenario_id(scenario_id: str) -> str:
     """Map catalog ids (S3_DISK), PRD names (S6_sqli_breach) and keywords (sqli) onto s1..s9."""
     s_id = scenario_id.lower().strip()
@@ -279,12 +302,7 @@ async def run_scenario(scenario_id: str) -> Dict[str, Any]:
     # S1: Bad Deploy (division by zero) forced past the Builder review flag
     # -----------------------------------------------------------------------
     if s_id == "s1":
-        diff = (
-            "--- a/app/orders.py\n+++ b/app/orders.py\n"
-            "@@ -20,1 +20,1 @@\n"
-            "-    return round(subtotal / max(item_count, 1), 2)\n"
-            "+    return round(subtotal / item_count, 2)  # Bug: division by zero if empty cart\n"
-        )
+        diff = await asyncio.to_thread(build_s1_bad_commit)
         evt = Event(
             source="webhook.git",
             kind="deploy_request",
@@ -720,10 +738,8 @@ def seed_initial_demo_state() -> None:
         task="breach_report",
         incident_id="inc_s6_sqli_breach",
     )
-    guard.record_tavily_search(
+    guard.record_tavily_call(
         query="OWASP SQL injection prevention SQLAlchemy parameterized queries",
-        incident_id="inc_s6_sqli_breach",
-        results_count=2,
         cached=False,
     )
 

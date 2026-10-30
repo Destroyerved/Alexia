@@ -14,6 +14,7 @@ import { useAlexia } from '../../context/AlexiaContext';
 import { SeverityBadge } from '../../components/status/SeverityBadge';
 import { StatusBadge } from '../../components/status/StatusBadge';
 import { formatCurrency, formatRelativeTime } from '../../lib/formatters';
+import { CodeFixPanel } from './CodeFixPanel';
 
 export const IncidentsView: React.FC = () => {
   const { incidents, selectedIncidentId, setSelectedIncidentId, modelCalls } = useAlexia();
@@ -21,7 +22,7 @@ export const IncidentsView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [severityFilter, setSeverityFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [activeTab, setActiveTab] = useState<'details' | 'diagnosis' | 'verification'>('details');
+  const [activeTab, setActiveTab] = useState<'details' | 'diagnosis' | 'code' | 'verification'>('details');
 
   const filteredIncidents = incidents.filter((inc) => {
     const matchesSearch =
@@ -193,6 +194,18 @@ export const IncidentsView: React.FC = () => {
               >
                 Diagnosis
               </button>
+              {selectedIncident.metadata?.code_fix && (
+                <button
+                  onClick={() => setActiveTab('code')}
+                  className={`pb-2.5 transition-colors cursor-pointer ${
+                    activeTab === 'code'
+                      ? 'border-b-2 border-[var(--accent-primary)] text-[var(--accent-primary)] font-semibold'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
+                >
+                  Code Fix
+                </button>
+              )}
               <button
                 onClick={() => setActiveTab('verification')}
                 className={`pb-2.5 transition-colors cursor-pointer ${
@@ -349,6 +362,11 @@ export const IncidentsView: React.FC = () => {
                   <p className="text-center py-6 text-[var(--text-muted)]">No diagnosis data recorded.</p>
                 )}
               </div>
+            )}
+
+            {/* Tab: Code Fix (Builder's patch, regression test and sandbox proof) */}
+            {activeTab === 'code' && selectedIncident.metadata?.code_fix && (
+              <CodeFixPanel fix={selectedIncident.metadata.code_fix} proof={selectedIncident.metadata.proof_of_fix} />
             )}
 
             {/* Tab: Verification */}

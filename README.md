@@ -41,6 +41,14 @@ Small teams lack the time and expertise to write these under pressure.
 | **Sentinel** (Security) | Diffs, access logs, query telemetry | Scans commits for leaked secrets; detects brute force and SQL injection; blocks attacker IPs; hashes forensic evidence; drafts compliance reports. |
 | **Integrity** | Database, volumes, migrations | Takes SHA-256 verified snapshots before any mutation; guards migrations on throwaway DB copies; assesses exposed records count. |
 
+### The Builder Proof Is Real
+Builder writes its regression test and patch against ShopLite's actual source (`target-app/app/main.py`, as deployed),
+and the sandbox runs them for real: the test must **fail** on the buggy code and **pass** after the patch, or nothing is
+opened. Up to 3 attempts (Super, Super, then Ultra) with the failing output fed back; an unproven fix is escalated to a
+human instead of becoming a PR. The dashboard's **Code Fix** tab on each incident shows the diff, the test, both sandbox
+logs and the PR link. The Deployer's health gate likewise runs the candidate release in the sandbox and probes `/health`,
+`/search` and `/orders/total` before deciding to roll back.
+
 ### The Headline Loop
 ```
 Attacker exploits SQL injection (UNION SELECT)

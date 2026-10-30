@@ -173,6 +173,12 @@ def print_banner() -> None:
 
 
 def main() -> int:
+    # Builder sandbox entry point in the frozen exe (pytest is not bundled): run one regression file and exit
+    if len(sys.argv) >= 3 and sys.argv[1] == "--sandbox-test":
+        from alexia.tools.mini_pytest import run as run_sandbox_test
+
+        return run_sandbox_test(sys.argv[2])
+
     _configure_windows_console()
     _load_dotenv_file(".env")
 
@@ -210,7 +216,10 @@ def main() -> int:
     from alexia.api.main import app as alexia_app
     from alexia.core.audit import get_audit_log
 
-    seed_initial_demo_state()
+    try:
+        seed_initial_demo_state()
+    except Exception as exc:  # demo seed data must never stop the server from starting
+        print(f"        -> Demo seed skipped: {exc}")
     audit_ok, rows_checked, _ = get_audit_log().verify_chain()
     print(f"        -> Audit Ledger Verified: {audit_ok} ({rows_checked} signed hash-chain blocks)")
 

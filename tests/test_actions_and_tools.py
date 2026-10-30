@@ -136,15 +136,57 @@ def test_tavily_search_tool():
     assert any("sql" in r.title.lower() or "owasp" in r.title.lower() for r in results)
 
 
-def test_sandbox_red_to_green_cycle():
+def _grounded_sqli_fix():
+    from alexia.core.llm import _replay_patch_from_source
+
     sandbox = SandboxRunner()
-    result = sandbox.verify_patch(
-        failing_test_code="def test_vulnerability():\n    assert False\n",
-        patch_diff="--- a/test.py\n+++ b/test.py\n",
-    )
-    assert result["failed_before"] is True
-    assert result["passed_after"] is True
+    source = sandbox.read_workspace_file("app/main.py")
+    prompt = f"SQL injection via UNION SELECT on /search\n\nSOURCE app/main.py\n```python\n{source.rstrip()}\n```\n"
+    return sandbox, _replay_patch_from_source(prompt)
+
+
+def test_sandbox_red_to_green_cycle():
+    """A real ShopLite regression test fails on the vulnerable code and passes after the real patch."""
+    sandbox, fix = _grounded_sqli_fix()
+    result = sandbox.verify_patch(failing_test_code=fix["failing_test"], patch_diff=fix["patch"])
+    assert result["failed_before"] is True, result["before_log"]
+    assert result["patch_applied"] is True, result["patch_message"]
+    assert result["passed_after"] is True, result["after_log"]
     assert result["success"] is True
+
+
+def test_sandbox_never_fakes_green():
+    """A patch that does not fix the bug, or does not apply, must not be reported as proven."""
+    sandbox, fix = _grounded_sqli_fix()
+    no_op_patch = fix["patch"].replace('cur.execute(query, (f"%{q}%",))', "cur.execute(query)").replace(
+        'query = "SELECT id, name, price FROM products WHERE name LIKE ?"',
+        "query = f\"SELECT id, name, price FROM products WHERE name LIKE '%{q}%'\"  # unchanged",
+    )
+    still_broken = sandbox.verify_patch(failing_test_code=fix["failing_test"], patch_diff=no_op_patch)
+    assert still_broken["failed_before"] is True
+    assert still_broken["passed_after"] is False
+    assert still_broken["success"] is False
+
+    unappliable = sandbox.verify_patch(
+        failing_test_code=fix["failing_test"],
+        patch_diff="--- a/app/main.py\n+++ b/app/main.py\n@@ -1,1 +1,1 @@\n-this line does not exist\n+x = 1\n",
+    )
+    assert unappliable["patch_applied"] is False
+    assert unappliable["success"] is False
+    assert "did not apply" in unappliable["after_log"]
+
+
+def test_diffutil_roundtrip_tolerates_line_drift():
+    from alexia.tools.diffutil import apply_diff_to_text, make_diff, parse_diff
+
+    old = "a\nb\nc\nd\ne\n"
+    new = "a\nb\nC\nd\ne\n"
+    diff = make_diff("f.py", old, new)
+    (_, path, hunks), = parse_diff(diff)
+    assert path == "f.py"
+    assert apply_diff_to_text(old, hunks) == new
+    # same hunk still applies when unrelated lines were added above it
+    assert apply_diff_to_text("x\ny\n" + old, hunks) == "x\ny\n" + new
 
 
 def test_snapshot_create_and_restore():

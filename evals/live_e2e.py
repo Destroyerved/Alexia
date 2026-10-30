@@ -209,6 +209,8 @@ def main() -> int:
         c.keys("model stats ~ ModelUsageSummary", r.json(), MODEL_SUMMARY_KEYS)
     r = get("/api/v1/audit")
     c.check("GET /api/v1/audit -> entries", r.status_code == 200 and "entries" in r.json(), r.text[:200])
+    r = get("/api/v1/agents")
+    c.check("GET /api/v1/agents -> 5 live agents", r.status_code == 200 and len(r.json()) == 5, r.text[:200])
     r = get("/api/v1/settings")
     c.check("GET /api/v1/settings -> 200", r.status_code == 200 and "autonomy_paused" in r.json(), r.text[:200])
     r = get("/api/v1/audit/verify")
@@ -247,7 +249,17 @@ def main() -> int:
     c.check("POST /api/v1/scenarios/S6_sqli_breach/run (descriptive alias) -> 200", long_id.status_code == 200, long_id.text[:200])
     bad = post("/api/v1/scenarios/S99_nope/run")
     c.check("unknown scenario -> 400", bad.status_code == 400, str(bad.status_code))
-    time.sleep(2.0)  # let async agent loops (builder sandbox, sentinel reports) finish
+
+    def wait_incident(inc_id: str, done: Callable[[Dict[str, Any]], bool], timeout: float = 90.0) -> Dict[str, Any]:
+        """Agent loops run concurrently in the background: poll until this incident reaches the expected state."""
+        deadline = time.time() + timeout
+        inc: Dict[str, Any] = {}
+        while time.time() < deadline:
+            inc = get(f"/api/v1/incidents/{inc_id}").json()
+            if done(inc):
+                break
+            time.sleep(0.5)
+        return inc
 
     # Persisted in SQLite?
     con = sqlite3.connect(db_path())
@@ -264,7 +276,7 @@ def main() -> int:
     print("\n[4] Incident detail, investigate, remediation")
     s6 = created.get("S6")
     if s6:
-        inc = get(f"/api/v1/incidents/{s6}").json()
+        inc = wait_incident(s6, lambda i: bool((i.get("metadata") or {}).get("code_fix")))
         c.keys("S6 incident detail ~ Incident", inc, INCIDENT_KEYS)
         diag = inc.get("diagnosis") or {}
         c.check("S6 diagnosis.root_cause populated", bool(diag.get("root_cause")), json.dumps(diag)[:200])
@@ -272,6 +284,9 @@ def main() -> int:
         c.check("S6 plan populated", bool(inc.get("plan")), "empty plan")
         c.check("S6 model_calls populated", bool(inc.get("model_calls")), "no model calls")
         c.check("S6 timeline stages populated", len(inc.get("stages") or []) >= 5, str(len(inc.get("stages") or [])))
+        fix = (inc.get("metadata") or {}).get("code_fix") or {}
+        c.check("S6 Builder fix proven red->green in sandbox", fix.get("proven") is True, fix.get("summary", "no code_fix"))
+        c.check("S6 patch parameterizes the query", "LIKE ?" in fix.get("patch", ""), fix.get("patch", "")[:200])
         blob = json.dumps(inc)
         c.check("S6 incident payload redacted (no raw emails / sk_live)", "@shoplite" not in blob and "sk_live_" not in blob, "unredacted data")
         r = post(f"/api/v1/incidents/{s6}/investigate")
@@ -280,7 +295,7 @@ def main() -> int:
         c.check("GET /api/v1/incidents/{id}/remediation -> plan", r.status_code == 200 and "plan" in r.json(), r.text[:200])
     s1 = created.get("S1")
     if s1:
-        inc = get(f"/api/v1/incidents/{s1}").json()
+        inc = wait_incident(s1, lambda i: bool((i.get("metadata") or {}).get("proof_of_fix")))
         proof = (inc.get("metadata") or {}).get("proof_of_fix") or {}
         c.check("S1 builder red->green proof (failed_before & passed_after)", proof.get("failed_before") is True and proof.get("passed_after") is True, json.dumps(proof)[:200])
     s4 = created.get("S4")

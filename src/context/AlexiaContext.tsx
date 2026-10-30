@@ -181,6 +181,8 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     if (payload.model_summary) setModelSummary(payload.model_summary);
     setAuditLogs(payload.audit?.entries ?? []);
     setAuditChain({ verified: Boolean(payload.audit?.chain_verified), rows: payload.audit?.verified_rows ?? 0 });
+    // Agent cards derived from open incidents + each agent's audit-chain activity
+    if (payload.agents?.length) setAgents(payload.agents);
     setAutonomyState(payload.is_autonomy_paused ? 'Paused' : 'Active');
     setIsDemoMode(Boolean(payload.settings?.demo_mode ?? true));
     setLastUpdated(new Date().toISOString());

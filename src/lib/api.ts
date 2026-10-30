@@ -5,6 +5,7 @@ import { ServiceHealth, DeploymentRecord } from '../types/services';
 import { AuditRecord, SnapshotRecord } from '../types/audit';
 import { SecurityReport } from '../types/reports';
 import { ModelCallRecord, ModelUsageSummary } from '../types/model-calls';
+import { AgentInfo } from '../types/agents';
 import {
   INITIAL_INCIDENTS,
   INITIAL_APPROVALS,
@@ -27,6 +28,7 @@ const CANDIDATE_BASES = [
 export interface DashboardPayload {
   autonomy_mode: 'autonomous' | 'paused';
   settings?: Record<string, unknown>;
+  agents?: AgentInfo[];
   is_autonomy_paused: boolean;
   open_incidents_count: number;
   pending_approvals_count: number;

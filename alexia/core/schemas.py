@@ -239,34 +239,31 @@ class Incident(BaseModel):
         # Build verification summary if resolved or verifying
         if self.verification is None and self.metadata.get("verification"):
             self.verification = self.metadata["verification"]
-        elif self.verification is None and self.status in ("verifying", "resolved", "acting"):
-            test_before_str = self.metadata.get(
-                "test_before",
-                f"FAIL: {self.category} anomaly active on {self.affected_service}",
-            )
-            test_after_str = self.metadata.get(
-                "test_after",
-                f"PASS: {self.affected_service} verified clean and regression suite green (12/12 passed)",
-            )
+        elif self.verification is None and isinstance(self.metadata.get("health_probe"), dict):
+            # Runtime fixes have no regression test: show the detection and the post-action probe actually run
+            probe = self.metadata["health_probe"]
+            ok = probe.get("status") == "healthy"
             self.verification = {
                 "test_before": {
                     "passed": False,
-                    "output": test_before_str if isinstance(test_before_str, str) else str(test_before_str),
+                    "output": f"Detected {self.metadata.get('kind', self.category)} on {self.affected_service}: "
+                    f"{self.metadata.get('error', self.summary)}",
                     "timestamp": self.created_at,
                 },
                 "test_after": {
-                    "passed": True,
-                    "output": test_after_str if isinstance(test_after_str, str) else str(test_after_str),
-                    "timestamp": self.resolved_at or self.updated_at,
+                    "passed": ok,
+                    "output": f"GET {probe.get('url', '/health')} -> HTTP {probe.get('http_code')} "
+                    f"in {probe.get('latency_ms')} ms [{probe.get('mode')}]",
+                    "timestamp": probe.get("timestamp") or self.updated_at,
                 },
                 "health_check": {
-                    "status": "healthy",
-                    "latency_ms": 4.2,
-                    "http_code": 200,
-                    "timestamp": self.resolved_at or self.updated_at,
+                    "status": probe.get("status", "unknown"),
+                    "latency_ms": probe.get("latency_ms", 0),
+                    "http_code": probe.get("http_code", 0),
+                    "timestamp": probe.get("timestamp") or self.updated_at,
                 },
-                "deployment_status": f"Active - {self.affected_service}:v2.4.1-patch1" if self.status == "resolved" else f"Staged - {self.affected_service}",
-                "snapshot_verified": True,
+                "deployment_status": "No deploy needed (runtime remediation)",
+                "snapshot_verified": bool(self.snapshots),
             }
         elif isinstance(self.verification, dict):
             if isinstance(self.verification.get("test_before"), str):

@@ -41,15 +41,19 @@ async def test_builder_agent_pre_deploy_review_and_fix():
     review = builder.review_diff(diff_with_secret)
     assert review.has_critical_issue is True
 
-    # Remediation loop
+    # Remediation loop on the code as deployed by S1's buggy commit (empty-cart guard removed)
+    from alexia.api.demo import build_s1_bad_commit
+
     incident = Incident(
         id=generate_id("inc"),
         category="code_bug",
         severity="high",
-        metadata={"service": "shoplite-api"},
+        metadata={"service": "shoplite-api", "deploy_diff": build_s1_bad_commit()},
     )
-    remediated = await builder.handle_incident(incident, error_text="ZeroDivisionError in calculate_discount()")
-    assert remediated.status in ("resolved", "acting")
+    remediated = await builder.handle_incident(
+        incident, error_text="HTTP 500 ZeroDivisionError on /orders/total: float division by zero"
+    )
+    assert remediated.status == "acting", remediated.metadata.get("code_fix")
     assert "proof_of_fix" in remediated.metadata
     assert remediated.metadata["proof_of_fix"]["failed_before"] is True
     assert remediated.metadata["proof_of_fix"]["passed_after"] is True
@@ -78,9 +82,11 @@ async def test_deployer_agent_gates_and_rollback():
     assert res_mig["gate"] == "integrity_migration"
 
     # Gate 3: Bad deploy triggers immediate rollback (forced deploy per Scenario S1)
+    from alexia.api.demo import build_s1_bad_commit
+
     res_rollback = await deployer.deploy_commit(
         commit_sha="c3d4e5f6",
-        diff_text="--- a/orders.py\n+++ b/orders.py\n@@ -1,2 +1,2 @@\n+discount = total / 0\n",
+        diff_text=build_s1_bad_commit(),  # real diff: removes ShopLite's empty-cart guard
         force_deploy=True,
     )
     assert res_rollback["status"] == "rolled_back"

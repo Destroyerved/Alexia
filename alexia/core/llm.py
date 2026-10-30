@@ -11,6 +11,7 @@ Implements FR-C3, FR-C4, FR-C5, FR-C10:
 from __future__ import annotations
 import hashlib
 import json
+import re
 import logging
 import os
 import time
@@ -403,6 +404,9 @@ class LLMClient:
 
         # Task: Code Patch Generation (Builder)
         if "patch" in task or "regression test" in lower_prompt:
+            grounded = _replay_patch_from_source(prompt)
+            if grounded:
+                return json.dumps(grounded), 420, 260, True
             if "sqli" in lower_prompt or "search" in lower_prompt or "union" in lower_prompt:
                 res = json.dumps({
                     "root_cause": "Unsanitized user search input formatted directly into raw SQL query in search endpoint.",
@@ -430,6 +434,102 @@ class LLMClient:
             "confidence": 0.90,
         })
         return res, 200, 80, True
+
+
+# ---------------------------------------------------------------------------
+# Replay patch generation grounded in the real source the Builder sends
+# ---------------------------------------------------------------------------
+_SOURCE_RE = re.compile(r"SOURCE (?P<path>\S+)[^\n]*\n```python\n(?P<src>.*?)\n```", re.S)
+
+_SQLI_TEST = '''from fastapi.testclient import TestClient
+from app.main import app
+
+
+def test_search_does_not_leak_users_via_union_injection():
+    client = TestClient(app)
+    payload = "' UNION SELECT email, phone, 1 FROM users--"
+    resp = client.get("/search", params={"q": payload})
+    assert resp.status_code == 200
+    leaked = [row for row in resp.json()["results"] if any("@" in str(v) for v in row.values())]
+    assert leaked == [], f"SQL injection leaked user rows: {leaked}"
+
+
+def test_search_still_finds_products():
+    client = TestClient(app)
+    resp = client.get("/search", params={"q": "Keyboard"})
+    assert resp.status_code == 200
+    assert any(r["name"] == "Wireless Keyboard" for r in resp.json()["results"])
+'''
+
+_DIVISION_TEST = '''from fastapi.testclient import TestClient
+from app.main import app
+
+
+def test_order_total_empty_cart_does_not_crash():
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get("/orders/total", params={"subtotal": 100.0, "item_count": 0})
+    assert resp.status_code == 200, f"empty cart crashed the endpoint: HTTP {resp.status_code}"
+    assert resp.json()["average_per_item"] == 0.0
+
+
+def test_order_total_regular_cart():
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get("/orders/total", params={"subtotal": 100.0, "item_count": 4})
+    assert resp.json()["average_per_item"] == 25.0
+'''
+
+
+def _replay_patch_from_source(prompt: str) -> Optional[Dict[str, Any]]:
+    """Deterministic stand-in for Super: edit the source quoted in the prompt and diff it.
+
+    Returns None when the prompt has no source or no known bug pattern, so callers fall back.
+    """
+    from alexia.tools.diffutil import make_diff
+
+    match = _SOURCE_RE.search(prompt)
+    if not match:
+        return None
+    path, src = match.group("path"), match.group("src") + "\n"
+    # Classify on the incident description only; the quoted source mentions every demo bug in its docstring
+    lower = prompt[: match.start()].lower()
+    lines = src.splitlines(keepends=True)
+
+    if "union" in lower or "sql injection" in lower or "sqli" in lower:
+        for i, line in enumerate(lines):
+            if "LIKE '%{q}%'" in line and "query = f" in line:
+                indent = line[: len(line) - len(line.lstrip())]
+                lines[i] = f'{indent}query = "SELECT id, name, price FROM products WHERE name LIKE ?"\n'
+                for j in range(i + 1, min(i + 6, len(lines))):
+                    if "cur.execute(query)" in lines[j]:
+                        lines[j] = lines[j].replace("cur.execute(query)", 'cur.execute(query, (f"%{q}%",))')
+                        break
+                new_src = "".join(lines)
+                return {
+                    "root_cause": f"User input is interpolated into the SQL string in {path} (/search), allowing UNION-based extraction of the users table (CWE-89).",
+                    "patch": make_diff(path, src, new_src),
+                    "failing_test": _SQLI_TEST,
+                    "explanation": "Bind the search term as a query parameter instead of formatting it into the SQL text.",
+                }
+        return None
+
+    if "division" in lower or "zerodivision" in lower or "item_count" in lower:
+        guarded = any("if item_count == 0" in l for l in lines)
+        for i, line in enumerate(lines):
+            if "round(subtotal / item_count" in line and not guarded:
+                indent = line[: len(line) - len(line.lstrip())]
+                guard = [
+                    f"{indent}if item_count == 0:\n",
+                    f'{indent}    return {{"subtotal": subtotal, "item_count": 0, "average_per_item": 0.0}}\n',
+                ]
+                new_src = "".join(lines[:i] + guard + lines[i:])
+                return {
+                    "root_cause": f"{path} divides the order subtotal by item_count without handling an empty cart, raising ZeroDivisionError (HTTP 500).",
+                    "patch": make_diff(path, src, new_src),
+                    "failing_test": _DIVISION_TEST,
+                    "explanation": "Return a zero average for empty carts before dividing.",
+                }
+        return None
+    return None
 
 
 _global_llm_client: Optional[LLMClient] = None

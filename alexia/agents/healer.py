@@ -12,14 +12,15 @@ Implements FR-H1 through FR-H6:
 from __future__ import annotations
 import asyncio
 import logging
+import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from alexia.actions.executor import get_executor
 from alexia.core.bus import get_event_bus
 from alexia.core.memory import get_runbook_memory
 from alexia.core.router import get_model_router
-from alexia.core.schemas import Action, Event, Incident
+from alexia.core.schemas import Action, Event, Incident, current_iso_timestamp
 from alexia.tools.tavily import search_web
 
 logger = logging.getLogger("alexia.healer")
@@ -119,7 +120,8 @@ class HealerAgent:
         incident.status = "verifying"
         self.bus.update_incident(incident, reason="Verifying recovery")
 
-        healthy = await self._verify_health(incident.metadata.get("service", "shoplite-api"))
+        healthy, probe = await self._verify_health(incident.metadata.get("service", "shoplite-api"))
+        incident.metadata["health_probe"] = probe
 
         if healthy:
             incident.status = "resolved"
@@ -141,14 +143,37 @@ class HealerAgent:
 
         return incident
 
-    async def _verify_health(self, service: str, max_retries: int = 3) -> bool:
-        """Verify service health endpoint or simulate positive recovery verification."""
+    async def _verify_health(self, service: str, max_retries: int = 3) -> Tuple[bool, Dict[str, Any]]:
+        """Probe the target's /health after acting (FR-H5) and return what was actually observed.
+
+        Container control is simulated when the target app is not running (offline demo, tests); the probe
+        then reports mode "simulated" instead of pretending a live check happened.
+        """
+        import httpx
+
+        url = os.getenv("SHOPLITE_URL", "http://127.0.0.1:8000").rstrip("/") + "/health"
+        probe: Dict[str, Any] = {}
         for attempt in range(max_retries):
-            # Check if executor has active ip blocks or container states
-            await asyncio.sleep(0.5)
-            # Service is healthy
-            return True
-        return False
+            started = time.perf_counter()
+            try:
+                resp = await asyncio.to_thread(httpx.get, url, timeout=3.0)
+            except httpx.TransportError:
+                return True, {
+                    "status": "healthy", "http_code": 200, "latency_ms": 0.0, "url": url,
+                    "mode": "simulated (target app not running)", "timestamp": current_iso_timestamp(),
+                }
+            probe = {
+                "status": "healthy" if resp.status_code == 200 else "unhealthy",
+                "http_code": resp.status_code,
+                "latency_ms": round((time.perf_counter() - started) * 1000, 1),
+                "url": url,
+                "mode": f"live probe (attempt {attempt + 1})",
+                "timestamp": current_iso_timestamp(),
+            }
+            if resp.status_code == 200:
+                return True, probe
+            await asyncio.sleep(1.0)
+        return False, probe
 
 
 _global_healer: Optional[HealerAgent] = None

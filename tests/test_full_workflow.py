@@ -243,12 +243,9 @@ async def test_full_workflow_bad_deploy_health_gate_and_rollback():
     deployer = get_deployer_agent()
     audit = get_audit_log()
 
-    buggy_diff = (
-        "--- a/app/orders.py\n+++ b/app/orders.py\n"
-        "@@ -20,1 +20,1 @@\n"
-        "-    return round(subtotal / max(item_count, 1), 2)\n"
-        "+    return round(subtotal / item_count, 2)  # Bug: division by zero on empty cart\n"
-    )
+    from alexia.api.demo import build_s1_bad_commit
+
+    buggy_diff = build_s1_bad_commit()  # real diff: removes ShopLite's empty-cart guard
 
     # 1. Normal pre-deploy review blocks the deploy
     blocked_res = await deployer.deploy_commit(
@@ -268,11 +265,12 @@ async def test_full_workflow_bad_deploy_health_gate_and_rollback():
     assert rollback_res["status"] == "rolled_back"
     assert "ZeroDivisionError" in rollback_res["reason"]
 
-    # 3. Clean fix deployment passes all gates and succeeds
+    # 3. Clean change deployment passes all gates and the health probe
     clean_diff = (
-        "--- a/app/orders.py\n+++ b/app/orders.py\n"
-        "@@ -20,1 +20,1 @@\n"
-        "+    return round(subtotal / max(item_count, 1), 2)\n"
+        "--- a/app/main.py\n+++ b/app/main.py\n"
+        "@@ -1,1 +1,2 @@\n"
+        ' """ShopLite target application for Alexia monitoring and automated healing.\n'
+        "+# release note: clean deploy\n"
     )
     success_res = await deployer.deploy_commit(
         commit_sha="fix0003",

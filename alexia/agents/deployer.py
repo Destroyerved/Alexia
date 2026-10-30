@@ -183,7 +183,7 @@ class DeployerAgent:
         self._record_deploy_event(deployment_id, commit_sha, "shipping", "Applying new version container")
 
         # Simulate or verify runtime health gate
-        health_ok, error_reason = await self._run_health_gate(service, diff_text)
+        health_ok, error_reason, gate_log = await self._run_health_gate(service, diff_text)
         if not health_ok:
             # Immediate Tier-0 Automatic Rollback (FR-D4)
             rollback_action = Action(
@@ -207,7 +207,15 @@ class DeployerAgent:
                 title=f"Automatic Rollback on {service}",
                 summary=f"New deploy triggered 5xx errors ({error_reason}). Auto-rolled back in <60s.",
                 plan=[rollback_action],
-                metadata={"service": service, "commit_sha": commit_sha, "error": error_reason, "deployment_id": deployment_id},
+                metadata={
+                    "service": service,
+                    "commit_sha": commit_sha,
+                    "error": error_reason,
+                    "deployment_id": deployment_id,
+                    # Builder reproduces the bug on exactly this code
+                    "deploy_diff": diff_text,
+                    "health_gate_log": gate_log[-3000:],
+                },
             )
             self.bus.create_incident(inc)
 
@@ -223,13 +231,16 @@ class DeployerAgent:
         self._record_deploy_event(deployment_id, commit_sha, "deployed_healthy", "Release verified healthy")
         return {"status": "success", "commit_sha": commit_sha, "deployment_id": deployment_id}
 
-    async def _run_health_gate(self, service: str, diff_text: str) -> Tuple[bool, str]:
-        """Check post-deployment health metrics (e.g. 500 status rates, restarts)."""
-        await asyncio.sleep(0.5)
-        # If diff introduced deliberate division by zero or bug
-        if "division" in diff_text.lower() or "zerodivision" in diff_text.lower() or "/ 0" in diff_text:
-            return False, "HTTP 500 ZeroDivisionError detected on /orders/total"
-        return True, ""
+    async def _run_health_gate(self, service: str, diff_text: str) -> Tuple[bool, str, str]:
+        """Health gate (FR-D4): run the candidate release in the sandbox and probe /health and key endpoints."""
+        from alexia.tools.sandbox import get_sandbox_runner
+
+        healthy, log = await asyncio.to_thread(get_sandbox_runner().smoke_test, diff_text)
+        if healthy:
+            return True, "", log
+        # pytest/mini-runner put the assertion message on "E   ..." lines (other lines echo the probe's source)
+        failures = [line.strip()[1:].strip() for line in log.splitlines() if line.startswith("E ") and "HTTP" in line]
+        return False, (failures[0] if failures else "health probe failed")[:300], log
 
     def _record_deploy_event(self, dep_id: str, commit: str, status: str, detail: str) -> None:
         self.audit.record(
