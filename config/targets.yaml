@@ -1,0 +1,25 @@
+# Alexia v3.0 (Rust Edition) — Protected Target Service Registry
+# Supports `process`, `docker`, `compose`, and `http` runtimes out of the box.
+
+gateway:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8000
+  default_target: "shoplite-api"
+  rate_limit_per_minute: 240
+
+targets:
+  - id: "svc_shoplite_api"
+    name: "shoplite-api"
+    runtime: "process"
+    # Uses the compiled `alexia` Rust binary itself in `--demo-target` mode (zero Python needed!)
+    command: ["${ALEXIA_EXE}", "--demo-target", "--port", "8001"]
+    workdir: "target-service"
+    upstream_url: "http://127.0.0.1:8001"
+    health_url: "http://127.0.0.1:8001/health"
+    env_file: "target-service/.env"
+    database_url: "redb://data/shoplite.redb"
+    github_repo: ""
+    base_branch: "main"
+    memory_limit_mb: 512
+    enabled: true

@@ -1,56 +1,93 @@
-# Model Routing and Token Factory Configuration
-# Base URL: https://api.tokenfactory.nebius.com/v1/
+# Alexia Multi-Provider LLM Routing Configuration
+# Supports: openai, gemini, anthropic, openrouter, nebius, ollama, or custom OpenAI-compatible endpoints.
+# Set ALEXIA_LLM_PROVIDER=auto (default) to auto-detect from configured API keys or local Ollama.
 
-base_url: "https://api.tokenfactory.nebius.com/v1/"
+default_provider: "auto"
 
-models:
-  nano:
-    id: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
-    alternative_id: "nvidia/Nemotron-3_5-Lightning"
-    context_window: 262144
-    pricing:
-      input_per_million: 0.06
-      output_per_million: 0.24
-    temperature: 0.1
-    timeout_seconds: 30
-    tasks:
-      - "event_triage"
-      - "log_summarisation"
-      - "secret_scan_confirmation"
-      - "runbook_matching"
-      - "push_summary"
+providers:
+  openai:
+    base_url: "https://api.openai.com/v1"
+    env_key: "OPENAI_API_KEY"
+    models:
+      nano:
+        id: "gpt-4o-mini"
+        pricing: { input_per_million: 0.15, output_per_million: 0.60 }
+      super:
+        id: "gpt-4o"
+        pricing: { input_per_million: 2.50, output_per_million: 10.00 }
+      ultra:
+        id: "o3-mini"
+        pricing: { input_per_million: 1.10, output_per_million: 4.40 }
 
-  super:
-    id: "nvidia/nemotron-3-super-120b-a12b"
-    alternative_id: "nvidia/Nemotron-3.5-Super-VL"
-    context_window: 256000
-    pricing:
-      input_per_million: 0.30
-      output_per_million: 0.90
-    temperature: 0.2
-    timeout_seconds: 60
-    tasks:
-      - "diagnosis"
-      - "code_patch_generation"
-      - "regression_test_generation"
-      - "structured_extraction"
-      - "breach_report_drafting"
+  gemini:
+    base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+    env_key: "GEMINI_API_KEY"
+    models:
+      nano:
+        id: "gemini-2.5-flash"
+        pricing: { input_per_million: 0.15, output_per_million: 0.60 }
+      super:
+        id: "gemini-2.5-pro"
+        pricing: { input_per_million: 1.25, output_per_million: 10.00 }
+      ultra:
+        id: "gemini-2.5-pro"
+        pricing: { input_per_million: 1.25, output_per_million: 10.00 }
 
-  ultra:
-    id: "nvidia/Nemotron-3-Ultra-550b-a55b"
-    alternative_id: "nvidia/Nemotron-3-Ultra-550b"
-    context_window: 1048576
-    pricing:
-      input_per_million: 1.00
-      output_per_million: 3.00
-    temperature: 0.2
-    timeout_seconds: 90
-    tasks:
-      - "fix_planning"
-      - "breach_investigation_timeline"
-      - "patch_security_review"
-      - "migration_risk_review"
-      - "multi_agent_orchestration"
+  anthropic:
+    base_url: "https://api.anthropic.com/v1/messages"
+    env_key: "ANTHROPIC_API_KEY"
+    models:
+      nano:
+        id: "claude-3-5-haiku-latest"
+        pricing: { input_per_million: 0.80, output_per_million: 4.00 }
+      super:
+        id: "claude-sonnet-4-20250514"
+        pricing: { input_per_million: 3.00, output_per_million: 15.00 }
+      ultra:
+        id: "claude-sonnet-4-20250514"
+        pricing: { input_per_million: 3.00, output_per_million: 15.00 }
+
+  openrouter:
+    base_url: "https://openrouter.ai/api/v1"
+    env_key: "OPENROUTER_API_KEY"
+    models:
+      nano:
+        id: "openai/gpt-4o-mini"
+        pricing: { input_per_million: 0.15, output_per_million: 0.60 }
+      super:
+        id: "anthropic/claude-3.5-sonnet"
+        pricing: { input_per_million: 3.00, output_per_million: 15.00 }
+      ultra:
+        id: "deepseek/deepseek-r1"
+        pricing: { input_per_million: 0.55, output_per_million: 2.19 }
+
+  nebius:
+    base_url: "https://api.tokenfactory.nebius.com/v1/"
+    env_key: "NEBIUS_API_KEY"
+    models:
+      nano:
+        id: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+        pricing: { input_per_million: 0.06, output_per_million: 0.24 }
+      super:
+        id: "nvidia/nemotron-3-super-120b-a12b"
+        pricing: { input_per_million: 0.30, output_per_million: 0.90 }
+      ultra:
+        id: "nvidia/Nemotron-3-Ultra-550b-a55b"
+        pricing: { input_per_million: 1.00, output_per_million: 3.00 }
+
+  ollama:
+    base_url: "http://127.0.0.1:11434/v1"
+    env_key: ""
+    models:
+      nano:
+        id: "qwen2.5-coder:7b"
+        pricing: { input_per_million: 0.0, output_per_million: 0.0 }
+      super:
+        id: "qwen2.5-coder:14b"
+        pricing: { input_per_million: 0.0, output_per_million: 0.0 }
+      ultra:
+        id: "qwen2.5-coder:32b"
+        pricing: { input_per_million: 0.0, output_per_million: 0.0 }
 
 escalation:
   nano_confidence_threshold: 0.70
@@ -61,4 +98,3 @@ escalation:
 budget:
   daily_token_cap: 5000000
   daily_usd_cap: 10.00
-  enable_replay_on_budget_exceeded: true

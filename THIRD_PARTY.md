@@ -1,39 +1,30 @@
-# Third-Party Dependencies and Licenses
+# Third-Party Dependencies and Open-Source Licenses
 
-Alexia strictly uses permissive open-source licenses (MIT, Apache-2.0, BSD, PSF) and complies with the Nebius x NVIDIA Hackathon Rule R15.
+Alexia v3.0 uses permissive open-source dependencies across both its Pure-Rust core and embedded React 19 Control Plane.
 
-## Backend (Python)
+## Pure-Rust Core & Terminal UI (`Cargo.toml`)
+
+| Crate | License | Purpose |
+| :--- | :---: | :--- |
+| `tokio` / `tokio-stream` / `futures-util` | MIT | Asynchronous runtime, TCP listeners, timers & broadcast streams |
+| `axum` / `tower` / `tower-http` | MIT | Control Plane HTTP/SSE router & inline reverse-proxy WAF gateway |
+| `reqwest` | MIT / Apache-2.0 | Multi-provider LLM HTTP client & upstream reverse-proxy forwarding |
+| `redb` | MIT / Apache-2.0 | Pure-Rust ACID copy-on-write embedded B-tree database |
+| `sqlparser` | Apache-2.0 | Pure-Rust SQL AST parser for migration dry-runs & PII exposure audits |
+| `sha2` / `sha1` / `hmac` / `scrypt` / `p256` | MIT / Apache-2.0 | RustCrypto primitives (SHA-256 audit chain, RFC 6238 TOTP, Scrypt, WebAuthn P-256) |
+| `sysinfo` | MIT | Cross-platform OS process PID, CPU%, and RSS memory telemetry |
+| `tar` / `flate2` | MIT / Apache-2.0 | Pure-Rust `.tar.gz` release archiving, rollbacks & `.log.gz` rotation |
+| `similar` | Apache-2.0 | Unified diff generation for autonomous patch synthesis |
+| `rust-embed` | MIT | Compile-time embedding of React 19 SPA & Mobile PWA assets |
+| `ratatui` / `crossterm` | MIT | Interactive cross-platform Terminal Command Center (`--tui`) |
+| `clap` / `serde` / `serde_json` / `serde_yaml` | MIT / Apache-2.0 | CLI argument parsing & strongly-typed configuration/API serialization |
+| `dashmap` / `parking_lot` | MIT / Apache-2.0 | Concurrent lock-free WAF IP blocklist & synchronization primitives |
+
+## Embedded Web Control Plane & Mobile PWA (`ui/package.json`)
 
 | Package | License | Purpose |
-|---|---|---|
-| `fastapi` | MIT | High-performance async REST API and SSE transport |
-| `uvicorn` | BSD-3-Clause | ASGI web server |
-| `pydantic` | MIT | Data validation and schema enforcement |
-| `sse-starlette` | BSD-3-Clause | Server-Sent Events (SSE) streaming |
-| `httpx` | BSD-3-Clause | Async HTTP client (used for GitHub REST API & LLM calls) |
-| `openai` | Apache-2.0 | Standard client targeting Nebius Token Factory API |
-| `tavily-python` | MIT | Grounded web search and CVE intelligence |
-| `pywebpush` | MPL-2.0 | Web Push notifications (used unmodified as an external library) |
-| `pyotp` | MIT | Time-based one-time passwords for mobile fallback authentication |
-| `cryptography` | Apache-2.0 / BSD | Cryptographic primitives for HMAC tokens and hash chains |
-| `pyyaml` | MIT | YAML configuration parsing |
-| `docker` | Apache-2.0 | Docker Engine Python SDK for container lifecycle management |
-| `pytest` | MIT | Testing framework for sandbox test generation and evals |
-
-## Frontend & Mobile Companion (Web / PWA)
-
-| Package | License | Purpose |
-|---|---|---|
-| `react` | MIT | UI component library |
-| `react-dom` | MIT | React DOM renderer |
-| `vite` | MIT | Build tool and dev server |
-| `vite-plugin-pwa` | MIT | Service worker generation and PWA offline manifest |
-| `tailwindcss` | MIT | Utility-first CSS styling framework |
-| `lucide-react` | MIT | Icons for dashboard and mobile interfaces |
-
-## Infrastructure & Runtimes
-
-- **Python 3.11+**: Python Software Foundation (PSF) License
-- **SQLite 3**: Public Domain (local metadata, event persistence, and audit hash chain)
-- **PostgreSQL 16**: PostgreSQL License (permissive)
-- **Caddy Web Server**: Apache-2.0
+| :--- | :---: | :--- |
+| `react` / `react-dom` (v19) | MIT | Component rendering for Desktop Control Plane & Mobile PWA |
+| `lucide-react` | ISC | Technical iconography |
+| `vite` / `vite-plugin-pwa` | MIT | Production SPA bundler & offline service worker manifest |
+| `vitest` / `@testing-library/react` | MIT | Automated frontend unit & component test suite |

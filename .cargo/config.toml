@@ -1,0 +1,10 @@
+# Cross-platform Cargo configuration:
+# - Linux, macOS, and Windows MSVC use their native host linkers out-of-the-box.
+# - Windows `gnullvm` (`cargo +stable-x86_64-pc-windows-gnullvm ...`) links 100% self-contained
+#   via bundled `rust-lld` without requiring Visual Studio Build Tools or external MinGW!
+[target.x86_64-pc-windows-gnullvm]
+linker = "rust-lld"
+rustflags = [
+    "-C", "linker-flavor=ld.lld",
+    "-C", "link-self-contained=yes",
+]

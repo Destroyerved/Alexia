@@ -1,0 +1,46 @@
+name: Alexia CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ui-test-and-build:
+    name: React 19 Control Plane (Vitest + Vite Build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+      - run: npm test -- --run
+      - run: npm run build
+
+  rust-suite:
+    name: Pure-Rust Guardian (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run Integration & Security Suite
+        run: cargo test --locked -- --nocapture
+      - name: Build Standalone Release Binary
+        run: cargo build --release --locked --bin alexia
+      - name: Run Self-Verification Gate (--verify-setup)
+        run: cargo run --release --locked --bin alexia -- --verify-setup
