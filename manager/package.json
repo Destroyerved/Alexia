@@ -1,0 +1,69 @@
+{
+  "name": "alexia-server-manager",
+  "version": "1.0.0",
+  "description": "Alexia Server Manager — install, run, watch and back up the Alexia Autonomous DevSecOps Guardian on Windows",
+  "main": "main.js",
+  "author": "Alexia DevSecOps",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "bundle": "node scripts/bundle.js",
+    "dist": "npm run bundle && electron-builder --win nsis --x64",
+    "dist:dir": "npm run bundle && electron-builder --dir --x64"
+  },
+  "devDependencies": {
+    "electron": "^35.2.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "co.alexia.server.manager",
+    "productName": "Alexia Server Manager",
+    "artifactName": "Alexia-Server-Setup-${version}.${ext}",
+    "asar": true,
+    "compression": "normal",
+    "files": [
+      "main.js",
+      "preload.js",
+      "lib/**/*",
+      "renderer/**/*",
+      "build/icon.png",
+      "build/tray.png"
+    ],
+    "extraResources": [
+      {
+        "from": "bundle",
+        "to": "bundle",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "requestedExecutionLevel": "requireAdministrator"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Alexia Server Manager",
+      "runAfterFinish": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "include": "build/installer.nsh"
+    },
+    "directories": {
+      "output": "release"
+    }
+  }
+}
