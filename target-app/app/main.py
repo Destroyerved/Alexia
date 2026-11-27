@@ -11,14 +11,46 @@ Contains endpoints:
 from __future__ import annotations
 import os
 import sqlite3
+import time
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 app = FastAPI(title="ShopLite Target App", version="1.0.0")
 
 DEMO_VULN = os.getenv("DEMO_VULN", "1") == "1"
 DB_PATH = os.getenv("DATABASE_URL", "data/shoplite.db").replace("sqlite:///", "").replace("./", "")
+
+
+def _is_caller_ip_blocked(client_ip: str) -> bool:
+    """Check Sentinel's shared ip_blocklist SQLite table when present."""
+    if not client_ip or client_ip in ("127.0.0.1", "::1", "localhost", "testclient"):
+        return False
+    block_db = os.getenv("ALEXIA_DB") or os.path.join(os.getenv("ALEXIA_DATA_DIR", "data"), "alexia.db")
+    if not os.path.exists(block_db):
+        return False
+    try:
+        with sqlite3.connect(block_db, timeout=2.0) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM ip_blocklist WHERE ip = ? AND expires_at > ? LIMIT 1",
+                (client_ip, time.time()),
+            ).fetchone()
+            return row is not None
+    except Exception:
+        return False
+
+
+@app.middleware("http")
+async def enforce_sentinel_blocklist(request: Request, call_next):
+    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    caller_ip = forwarded or (request.client.host if request.client else "")
+    if _is_caller_ip_blocked(caller_ip):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "IP address temporarily blocked by Alexia Sentinel"},
+        )
+    return await call_next(request)
 
 
 def get_db():

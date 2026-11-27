@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from alexia.core.schemas import Action
 from alexia.core.paths import resolve_db_path
+from alexia.core.sqlite import connect as sqlite_connect, resolve_openable_path
 
 logger = logging.getLogger("alexia.memory")
 
@@ -25,20 +26,14 @@ class RunbookMemory:
     """Manages persistent incident-to-fix runbooks in SQLite."""
 
     def __init__(self, db_path: str = "data/alexia.db"):
-        # source_db_path is what singletons compare against; db_path may fall back to *.sqlite
-        self.db_path = self.source_db_path = resolve_db_path(db_path)
-        os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+        self.source_db_path = resolve_db_path(db_path)
+        self.db_path = resolve_openable_path(self.source_db_path)
+        os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
         self._lock = threading.Lock()
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
-        try:
-            conn = sqlite3.connect(self.db_path, timeout=10)
-        except sqlite3.OperationalError:
-            self.db_path = f"{self.db_path}.sqlite"
-            conn = sqlite3.connect(self.db_path, timeout=10)
-        conn.row_factory = sqlite3.Row
-        return conn
+        return sqlite_connect(self.db_path)
 
     def _init_db(self) -> None:
         with self._lock, self._get_connection() as conn:
@@ -200,7 +195,13 @@ _global_memory: Optional[RunbookMemory] = None
 
 def get_runbook_memory(db_path: str = "data/alexia.db") -> RunbookMemory:
     """Retrieve or initialize global RunbookMemory."""
+    from alexia.core.sqlite import has_table
+
     global _global_memory
-    if _global_memory is None or _global_memory.source_db_path != resolve_db_path(db_path):
+    if (
+        _global_memory is None
+        or _global_memory.source_db_path != resolve_db_path(db_path)
+        or not has_table(_global_memory.db_path, "runbooks")
+    ):
         _global_memory = RunbookMemory(db_path=db_path)
     return _global_memory

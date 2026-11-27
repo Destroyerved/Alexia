@@ -99,11 +99,19 @@ def apply_diff_to_dir(root: str, diff_text: str) -> Tuple[bool, str, Dict[str, s
     if not files or not any(h for _, _, h in files):
         return False, "patch contains no hunks", {}
     updated: Dict[str, str] = {}
+    root_real = os.path.realpath(root)
     for old_path, new_path, hunks in files:
         rel = new_path or old_path
         if not rel or os.path.isabs(rel) or ".." in rel.replace("\\", "/").split("/"):
             return False, f"refusing to patch path outside the sandbox: {rel!r}", {}
         full = os.path.join(root, rel)
+        # A symlink inside the copied app must not let a patch write outside the sandbox.
+        try:
+            inside_sandbox = os.path.commonpath([root_real, os.path.realpath(full)]) == root_real
+        except ValueError:  # different drives on Windows
+            inside_sandbox = False
+        if not inside_sandbox:
+            return False, f"refusing to patch a path that escapes the sandbox: {rel!r}", {}
         current = ""
         if old_path is not None:
             if not os.path.exists(full):

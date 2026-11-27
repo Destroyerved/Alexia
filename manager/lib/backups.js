@@ -86,19 +86,25 @@ async function restore(name, onLine) {
   await service.stop();
   await new Promise((r) => setTimeout(r, 1500));
 
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  if (fs.existsSync(db)) {
-    const keep = `${db}.before-restore-${stamp}`;
-    fs.copyFileSync(db, keep);
-    if (fs.existsSync(`${db}-wal`)) fs.copyFileSync(`${db}-wal`, `${keep}-wal`);
-    say(`Current database preserved as ${path.basename(keep)}`);
+  const env = {
+    ALEXIA_DATA_DIR: where.data,
+    ALEXIA_BACKUP_DIR: where.main,
+    ALEXIA_BACKUP_COPY_DIR: where.copy || '',
+    ALEXIA_DB: db,
+  };
+
+  let result;
+  if (fs.existsSync(paths.SERVER_EXE)) {
+    result = await run(paths.SERVER_EXE, ['--restore-backup', name], { cwd: paths.APP, env, onLine, timeoutMs: 120000 });
+  } else {
+    result = await run('python', ['-m', 'alexia.tools.backup', '--restore', name], { cwd: paths.APP, env, onLine, timeoutMs: 120000 });
   }
-  for (const suffix of ['-wal', '-shm']) {
-    if (fs.existsSync(db + suffix)) fs.rmSync(db + suffix, { force: true });
+  if (result.code !== 0) {
+    await service.start().catch(() => {});
+    throw new Error((result.stderr || result.stdout).trim() || 'Database restore verification failed');
   }
-  fs.mkdirSync(path.dirname(db), { recursive: true });
-  fs.copyFileSync(from, db);
-  say('Backup copied into place. Starting Alexia');
+
+  say('Verified backup restored into place. Starting Alexia');
   await service.start();
 }
 
@@ -106,6 +112,9 @@ function remove(name) {
   if (!NAME.test(name)) throw new Error('That is not an Alexia backup');
   const where = locations();
   fs.rmSync(path.join(where.main, name), { force: true });
+  if (where.copy && fs.existsSync(where.copy)) {
+    fs.rmSync(path.join(where.copy, name), { force: true });
+  }
 }
 
 module.exports = { list, backupNow, restore, remove, locations };

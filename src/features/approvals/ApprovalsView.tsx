@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import {
-  CheckSquare,
-  AlertTriangle,
   CheckCircle2,
-  XCircle,
+  Fingerprint,
   X,
   RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
 import { useAlexia } from '../../context/AlexiaContext';
+import { apiClient } from '../../lib/api';
 import { SeverityBadge } from '../../components/status/SeverityBadge';
 import { StatusBadge } from '../../components/status/StatusBadge';
 import { formatRelativeTime } from '../../lib/formatters';
@@ -19,6 +19,8 @@ export const ApprovalsView: React.FC = () => {
     approveAction,
     rejectAction,
     pendingActionId,
+    isDemoMode,
+    sessionInfo,
     setCurrentView,
     setSelectedIncidentId,
   } = useAlexia();
@@ -30,6 +32,7 @@ export const ApprovalsView: React.FC = () => {
 
   const [rejectionReason, setRejectionReason] = useState('');
   const [stepUpCode, setStepUpCode] = useState('');
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<{
     type: 'success' | 'error';
     text: string;
@@ -38,6 +41,11 @@ export const ApprovalsView: React.FC = () => {
   const pendingApprovals = approvals.filter((a) => a.status === 'pending');
   const historyApprovals = approvals.filter((a) => a.status !== 'pending');
 
+  const showFeedback = (type: 'success' | 'error', text: string) => {
+    setFeedbackMessage({ type, text });
+    setTimeout(() => setFeedbackMessage(null), 5000);
+  };
+
   const handleConfirmDecision = async () => {
     if (!confirmingAction) return;
 
@@ -45,31 +53,35 @@ export const ApprovalsView: React.FC = () => {
     try {
       if (decision === 'approved') {
         const res = await approveAction(approval.id, undefined, stepUpCode);
-        setFeedbackMessage({
-          type: res.success ? 'success' : 'error',
-          text: res.message,
-        });
+        showFeedback(res.success ? 'success' : 'error', res.message);
       } else {
-        const res = await rejectAction(
-          approval.id,
-          rejectionReason || 'Rejected by operator'
-        );
-        setFeedbackMessage({
-          type: res.success ? 'success' : 'error',
-          text: res.message,
-        });
+        const res = await rejectAction(approval.id, rejectionReason || 'Rejected by operator');
+        showFeedback(res.success ? 'success' : 'error', res.message);
       }
     } catch (err: any) {
-      setFeedbackMessage({
-        type: 'error',
-        text: err?.message || 'Operation failed',
-      });
+      showFeedback('error', err?.message || 'Operation failed');
     } finally {
       setConfirmingAction(null);
       setRejectionReason('');
       setStepUpCode('');
-      setTimeout(() => setFeedbackMessage(null), 5000);
     }
+  };
+
+  const handleApproveWithPasskey = async () => {
+    if (!confirmingAction) return;
+    setPasskeyBusy(true);
+    const { approval } = confirmingAction;
+    const su = await apiClient.stepUpWithPasskey(sessionInfo?.username || 'demo', approval.id);
+    if (!su.token) {
+      setPasskeyBusy(false);
+      showFeedback('error', su.error || 'Passkey verification failed');
+      return;
+    }
+    const res = await approveAction(approval.id, undefined, undefined, su.token);
+    setPasskeyBusy(false);
+    setConfirmingAction(null);
+    setStepUpCode('');
+    showFeedback(res.success ? 'success' : 'error', res.message);
   };
 
   return (
@@ -85,7 +97,6 @@ export const ApprovalsView: React.FC = () => {
           </p>
         </div>
 
-        {/* Action Tier Legend */}
         <div className="flex items-center gap-2 text-xs font-mono">
           <span className="px-2 py-0.5 rounded bg-[var(--status-warning-bg)] text-[var(--status-warning)] border border-[var(--status-warning-border)] font-semibold">
             Tier 1: Approval Req.
@@ -112,7 +123,7 @@ export const ApprovalsView: React.FC = () => {
           }}
         >
           <div className="flex items-center gap-2">
-            <CheckCircle2 size={16} />
+            {feedbackMessage.type === 'success' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
             <span>{feedbackMessage.text}</span>
           </div>
           <button
@@ -144,8 +155,8 @@ export const ApprovalsView: React.FC = () => {
                 key={app.id}
                 className="web-card p-5 space-y-4 border-[var(--status-warning-border)]"
               >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-[var(--status-warning-bg)] text-[var(--status-warning)]">
                       {app.action_tier_label}
                     </span>
@@ -168,7 +179,6 @@ export const ApprovalsView: React.FC = () => {
                   </p>
                 </div>
 
-                {/* Outcome & Rollback */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-[var(--surface-hover)] border border-[var(--border-subtle)] text-xs">
                   <div>
                     <span className="text-[11px] text-[var(--text-muted)] block font-medium">Expected Result</span>
@@ -190,11 +200,24 @@ export const ApprovalsView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Action Buttons: Clearly Separated */}
-                <div className="flex items-center justify-between pt-3 border-t border-[var(--border-subtle)] text-xs">
-                  <span className="text-[var(--text-muted)]">
-                    Requested by: <strong className="text-[var(--text-primary)] font-mono">{app.requesting_agent}</strong>
-                  </span>
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-[var(--border-subtle)] text-xs">
+                  <div className="flex items-center gap-3">
+                    <span className="text-[var(--text-muted)]">
+                      Requested by: <strong className="text-[var(--text-primary)] font-mono">{app.requesting_agent}</strong>
+                    </span>
+                    {app.incident_id && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedIncidentId(app.incident_id);
+                          setCurrentView('incidents');
+                        }}
+                        className="text-[var(--accent-primary)] hover:underline font-medium cursor-pointer"
+                      >
+                        Inspect Incident →
+                      </button>
+                    )}
+                  </div>
 
                   <div className="flex items-center gap-3">
                     <button
@@ -256,7 +279,7 @@ export const ApprovalsView: React.FC = () => {
               </h3>
               <button
                 onClick={() => setConfirmingAction(null)}
-                className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                className="text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
                 aria-label="Close confirmation"
               >
                 <X size={18} />
@@ -269,21 +292,32 @@ export const ApprovalsView: React.FC = () => {
             </div>
 
             {confirmingAction.decision === 'approved' && (
-              <div>
-                <label htmlFor="step-up-code" className="block text-xs text-[var(--text-secondary)] mb-1 font-medium">
-                  Step-up verification (passkey / biometric, or 6-digit TOTP)
-                </label>
-                <input
-                  id="step-up-code"
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  maxLength={6}
-                  placeholder="Demo code: 123456"
-                  value={stepUpCode}
-                  onChange={(e) => setStepUpCode(e.target.value.replace(/\D/g, ''))}
-                  className="web-input w-full text-xs font-mono tracking-widest"
-                />
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  disabled={passkeyBusy}
+                  onClick={handleApproveWithPasskey}
+                  className="web-btn-secondary w-full justify-center text-xs border-[var(--border-highlight)] text-[var(--accent-primary)]"
+                >
+                  <Fingerprint size={15} />
+                  <span>{passkeyBusy ? 'Verifying Passkey...' : 'Authorize with Passkey / Biometric'}</span>
+                </button>
+                <div>
+                  <label htmlFor="step-up-code" className="block text-xs text-[var(--text-secondary)] mb-1 font-medium">
+                    Or enter 6-digit TOTP {isDemoMode ? '(Demo: 123456)' : ''}
+                  </label>
+                  <input
+                    id="step-up-code"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    placeholder={isDemoMode ? '123456' : '000000'}
+                    value={stepUpCode}
+                    onChange={(e) => setStepUpCode(e.target.value.replace(/\D/g, ''))}
+                    className="web-input w-full text-xs font-mono tracking-widest"
+                  />
+                </div>
               </div>
             )}
 

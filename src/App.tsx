@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlexiaProvider, useAlexia } from './context/AlexiaContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { AppShell } from './components/layout/AppShell';
 import { MobileShell } from './components/layout/MobileShell';
 import { useIsMobile } from './hooks/useIsMobile';
@@ -16,46 +17,63 @@ import { SettingsView } from './features/settings/SettingsView';
 const ViewRouter: React.FC = () => {
   const { currentView } = useAlexia();
 
+  let content: React.ReactNode;
   switch (currentView) {
     case 'overview':
-      return <OverviewView />;
+      content = <OverviewView />;
+      break;
     case 'incidents':
-      return <IncidentsView />;
+      content = <IncidentsView />;
+      break;
     case 'approvals':
-      return <ApprovalsView />;
+      content = <ApprovalsView />;
+      break;
     case 'services':
     case 'deployments':
-      return <ServicesView />;
+      content = <ServicesView />;
+      break;
     case 'scenarios':
-      return <ScenariosView />;
+      content = <ScenariosView />;
+      break;
     case 'security':
     case 'audit':
-      return <SecurityView />;
+      content = <SecurityView />;
+      break;
     case 'usage':
-      return <ModelUsageView />;
+      content = <ModelUsageView />;
+      break;
     case 'settings':
-      return <SettingsView />;
+      content = <SettingsView />;
+      break;
     default:
-      return <OverviewView />;
+      content = <OverviewView />;
   }
+
+  return (
+    <ErrorBoundary key={currentView} fallbackTitle={`Unable to render ${currentView} view`}>
+      {content}
+    </ErrorBoundary>
+  );
 };
 
 export default function App() {
   const isMobile = useIsMobile();
 
   return (
-    <ThemeProvider>
-      <AlexiaProvider>
-        {isMobile ? (
-          <MobileShell>
-            <ViewRouter />
-          </MobileShell>
-        ) : (
-          <AppShell>
-            <ViewRouter />
-          </AppShell>
-        )}
-      </AlexiaProvider>
-    </ThemeProvider>
+    <ErrorBoundary fallbackTitle="Alexia Console Error">
+      <ThemeProvider>
+        <AlexiaProvider>
+          {isMobile ? (
+            <MobileShell>
+              <ViewRouter />
+            </MobileShell>
+          ) : (
+            <AppShell>
+              <ViewRouter />
+            </AppShell>
+          )}
+        </AlexiaProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }

@@ -40,7 +40,9 @@ class LLMClient:
 
         # Initialize real OpenAI client if key is present
         self._openai_client = None
-        if self.api_key and self.api_key != "your_nebius_api_key_here":
+        self._consecutive_failures = 0
+        self._circuit_open_until = 0.0
+        if self.api_key and self.api_key not in ("your_nebius_api_key_here", "changeme"):
             try:
                 from openai import OpenAI
                 self._openai_client = OpenAI(base_url=self.base_url, api_key=self.api_key)
@@ -81,13 +83,47 @@ class LLMClient:
         """Public method to compute cost in USD for a given tier and token counts."""
         return self._compute_cost(tier, prompt_tokens, completion_tokens)
 
-
     def is_live(self) -> bool:
-        """Return True if live Token Factory inference is configured and within budget."""
+        """Return True if live Token Factory inference is configured, healthy, and within budget."""
+        budget_guard = get_budget_guard()
         return (
             self._openai_client is not None
-            and not self.budget_guard.should_use_replay_mode()
+            and time.time() >= self._circuit_open_until
+            and not budget_guard.should_use_replay_mode()
         )
+
+    @staticmethod
+    def _extract_json_object(raw_text: str) -> str:
+        """Strip <think> reasoning traces, markdown code fences, and extract the JSON object."""
+        cleaned = re.sub(r"<think>[\s\S]*?</think>", "", raw_text or "", flags=re.IGNORECASE).strip()
+        fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", cleaned, flags=re.IGNORECASE)
+        if fence_match:
+            cleaned = fence_match.group(1).strip()
+        # Find outermost balanced {...} if extra prose surrounds the JSON object
+        start = cleaned.find("{")
+        if start != -1:
+            depth = 0
+            in_str = False
+            esc = False
+            for idx in range(start, len(cleaned)):
+                ch = cleaned[idx]
+                if in_str:
+                    if esc:
+                        esc = False
+                    elif ch == "\\":
+                        esc = True
+                    elif ch == '"':
+                        in_str = False
+                else:
+                    if ch == '"':
+                        in_str = True
+                    elif ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                        if depth == 0:
+                            return cleaned[start : idx + 1]
+        return cleaned
 
     def complete(
         self,
@@ -99,48 +135,82 @@ class LLMClient:
         temperature: Optional[float] = None,
         max_tokens: int = 2048,
     ) -> Tuple[str, ModelCall]:
-        """Execute a text completion with redaction, accounting, and replay fallback."""
+        """Execute a text completion with redaction, retries, circuit-breaker, and accounting."""
         start_time = time.perf_counter()
+        budget_guard = get_budget_guard()
 
-        # 1. Redact prompt text (FR-C4)
-        redacted_prompt = redact(prompt)
-        prompt_hash = hashlib.sha256(redacted_prompt.encode("utf-8")).hexdigest()[:16]
+        # 1. Redact both prompt and system_prompt before leaving system boundary (FR-C4)
+        redacted_prompt = str(redact(prompt))
+        redacted_system = str(redact(system_prompt))
+        prompt_hash = hashlib.sha256(f"{redacted_system}\n{redacted_prompt}".encode("utf-8")).hexdigest()[:16]
 
         model_info = self.get_model_info(tier)
         model_id = model_info.get("id", f"nvidia/nemotron-3-{tier}")
         temp = temperature if temperature is not None else model_info.get("temperature", 0.2)
         timeout = model_info.get("timeout_seconds", 60)
 
-        # 2. Check if live inference is possible
+        call_status = "success"
+        # 2. Live Token Factory call with retry + circuit breaker
         if self.is_live():
-            try:
-                response = self._openai_client.chat.completions.create(
-                    model=model_id,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": redacted_prompt},
-                    ],
-                    temperature=temp,
-                    max_tokens=max_tokens,
-                    timeout=timeout,
+            last_exc: Optional[Exception] = None
+            content = ""
+            p_tokens = 0
+            c_tokens = 0
+            is_cached = False
+            for retry_idx in range(2):
+                try:
+                    response = self._openai_client.chat.completions.create(
+                        model=model_id,
+                        messages=[
+                            {"role": "system", "content": redacted_system},
+                            {"role": "user", "content": redacted_prompt},
+                        ],
+                        temperature=temp,
+                        max_tokens=max_tokens,
+                        timeout=timeout,
+                    )
+                    content = response.choices[0].message.content or ""
+                    usage = response.usage
+                    p_tokens = usage.prompt_tokens if usage else len(redacted_prompt) // 4
+                    c_tokens = usage.completion_tokens if usage else len(content) // 4
+                    is_cached = False
+                    self._consecutive_failures = 0
+                    last_exc = None
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    if retry_idx == 0:
+                        time.sleep(0.35)
+            if last_exc is not None:
+                self._consecutive_failures += 1
+                if self._consecutive_failures >= 3:
+                    self._circuit_open_until = time.time() + 30.0
+                logger.error(
+                    f"Token Factory call failed for tier {tier} ({model_id}): {last_exc}. Recording failure and using replay fallback."
                 )
-                content = response.choices[0].message.content or ""
-                usage = response.usage
-                p_tokens = usage.prompt_tokens if usage else len(redacted_prompt) // 4
-                c_tokens = usage.completion_tokens if usage else len(content) // 4
-                is_cached = False
-            except Exception as e:
-                logger.error(f"Token Factory call failed for tier {tier} ({model_id}): {e}. Falling back to replay engine.")
+                budget_guard.record_model_call(
+                    model_tier=tier,
+                    model_id=model_id,
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    cost_usd=0.0,
+                    latency_ms=round((time.perf_counter() - start_time) * 1000, 2),
+                    task=task,
+                    incident_id=incident_id,
+                    prompt_hash=prompt_hash,
+                    cached=False,
+                    status="failed",
+                )
                 content, p_tokens, c_tokens, is_cached = self._replay_completion(tier, task, redacted_prompt)
         else:
-            # Replay / Mock Engine fallback
             content, p_tokens, c_tokens, is_cached = self._replay_completion(tier, task, redacted_prompt)
 
         latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
-        cost_usd = self._compute_cost(tier, p_tokens, c_tokens)
+        # Replay/cached calls incur $0.00 live API spend (NFR8 / PRD §10)
+        cost_usd = 0.0 if is_cached else self._compute_cost(tier, p_tokens, c_tokens)
 
-        # 3. Record accounting (FR-C3, FR-C10)
-        self.budget_guard.record_model_call(
+        # 3. Record accounting (FR-C3, FR-C10, NFR8)
+        budget_guard.record_model_call(
             model_tier=tier,
             model_id=model_id,
             prompt_tokens=p_tokens,
@@ -149,6 +219,9 @@ class LLMClient:
             latency_ms=latency_ms,
             task=task,
             incident_id=incident_id,
+            prompt_hash=prompt_hash,
+            cached=is_cached,
+            status=call_status,
         )
 
         model_call = ModelCall(
@@ -188,7 +261,6 @@ class LLMClient:
         )
 
     def structured_complete(
-
         self,
         tier: ModelTier,
         prompt: str,
@@ -199,12 +271,17 @@ class LLMClient:
     ) -> Tuple[T, ModelCall]:
         """Execute a completion and validate against a Pydantic schema (FR-C5).
 
-        On failure, retries once; if that fails, caller can escalate tier.
+        On failure, retries once at temperature 0.0; if validation still fails,
+        raises ValueError so ModelRouter can escalate tier (Nano -> Super -> Ultra).
         """
         schema_json = json.dumps(schema.model_json_schema(), indent=2)
-        augmented_prompt = f"{prompt}\n\nYou MUST reply with a single JSON object matching this schema:\n```json\n{schema_json}\n```\nDo not include any explanation or markdown tags outside the JSON."
+        augmented_prompt = (
+            f"{prompt}\n\nYou MUST reply with a single JSON object matching this schema:\n"
+            f"```json\n{schema_json}\n```\n"
+            "Do not include any explanation or markdown tags outside the JSON."
+        )
 
-        last_error = None
+        last_error: Optional[Exception] = None
         for attempt in range(2):
             raw_text, call = self.complete(
                 tier=tier,
@@ -215,41 +292,35 @@ class LLMClient:
                 temperature=0.1 if attempt == 0 else 0.0,
             )
 
+            parsed_dict: Optional[Dict[str, Any]] = None
             try:
-                cleaned = raw_text.strip()
-                if cleaned.startswith("```"):
-                    lines = cleaned.split("\n")
-                    if lines[0].startswith("```"):
-                        lines = lines[1:]
-                    if lines and lines[-1].startswith("```"):
-                        lines = lines[:-1]
-                    cleaned = "\n".join(lines).strip()
-
+                cleaned = self._extract_json_object(raw_text)
                 parsed_dict = json.loads(cleaned)
                 validated = schema.model_validate(parsed_dict)
                 return validated, call
-            except (json.JSONDecodeError, ValidationError) as err:
+            except (json.JSONDecodeError, ValidationError, TypeError) as err:
                 last_error = err
-                logger.warning(f"Structured validation attempt {attempt+1} failed for {schema.__name__}: {err}")
-                if attempt == 1:
-                    # Deterministic synthesis of required schema fields in replay/fallback mode
+                logger.warning(f"Structured validation attempt {attempt + 1} failed for {schema.__name__}: {err}")
+                # Only in offline replay mode when a custom ad-hoc schema isn't covered by _replay_completion
+                if attempt == 1 and call.cached and isinstance(parsed_dict, dict):
                     try:
                         synth: Dict[str, Any] = {}
                         for f_name, f_info in schema.model_fields.items():
-                            if isinstance(parsed_dict, dict) and f_name in parsed_dict:
+                            if f_name in parsed_dict:
                                 synth[f_name] = parsed_dict[f_name]
+                            elif not f_info.is_required():
+                                continue
                             elif f_info.annotation is bool:
-                                synth[f_name] = True
+                                synth[f_name] = False
                             elif f_info.annotation in (int, float, Optional[float]):
-                                synth[f_name] = 0.95
+                                synth[f_name] = 0.85
                             elif getattr(f_info.annotation, "__origin__", None) is list or f_info.annotation is list:
-                                synth[f_name] = ["Autonomous verification trace step"]
+                                synth[f_name] = []
                             else:
-                                synth[f_name] = f"Autonomous {f_name} summary"
+                                synth[f_name] = f"Replay {f_name}"
                         return schema.model_validate(synth), call
-                    except Exception as fallback_err:
-                        logger.error(f"Fallback synthesis error: {fallback_err}")
-
+                    except Exception:
+                        pass
 
         raise ValueError(f"Failed to generate valid {schema.__name__} after 2 attempts: {last_error}")
 
@@ -356,13 +427,44 @@ class LLMClient:
 
         # Task: Migration Risk Review (FR-I3)
         if "migration" in task or "alter table" in lower_prompt:
-            res = json.dumps({
-                "is_destructive": True,
-                "dropped_columns": ["phone"],
-                "dropped_tables": [],
-                "estimated_data_loss_records": 150,
-                "risk_summary": "Migration script drops column 'users.phone' containing active customer telephone numbers.",
-            })
+            sql_block = lower_prompt
+            if "```sql" in lower_prompt:
+                try:
+                    sql_block = lower_prompt.split("```sql", 1)[1].split("```", 1)[0]
+                except Exception:
+                    sql_block = lower_prompt
+
+            drops_col = bool(re.search(r"\bdrop\s+column\b", sql_block))
+            drops_tbl = bool(re.search(r"\b(?:drop|truncate)\s+table\b", sql_block))
+            deletes_all = bool(re.search(r"\bdelete\s+from\s+[a-z0-9_]+\s*(?:;|$)", sql_block))
+            destructive = drops_col or drops_tbl or deletes_all
+
+            dropped_cols = re.findall(r"\bdrop\s+column\s+(?:if\s+exists\s+)?([a-z0-9_]+)", sql_block)
+            dropped_tbls = re.findall(r"\b(?:drop|truncate)\s+table\s+(?:if\s+exists\s+)?([a-z0-9_]+)", sql_block)
+
+            if destructive:
+                col_label = dropped_cols[0] if dropped_cols else "phone"
+                tbl_label = dropped_tbls[0] if dropped_tbls else "records"
+                summary_msg = (
+                    f"Migration script drops column '{col_label}' containing active records; human Tier-1 approval required."
+                    if drops_col
+                    else f"Migration script drops table '{tbl_label}' containing active records; human Tier-1 approval required."
+                )
+                res = json.dumps({
+                    "is_destructive": True,
+                    "dropped_columns": dropped_cols or (["phone"] if drops_col else []),
+                    "dropped_tables": dropped_tbls,
+                    "estimated_data_loss_records": 150,
+                    "risk_summary": summary_msg,
+                })
+            else:
+                res = json.dumps({
+                    "is_destructive": False,
+                    "dropped_columns": [],
+                    "dropped_tables": [],
+                    "estimated_data_loss_records": 0,
+                    "risk_summary": "Additive schema migration verified safe; zero tables, columns, or records at risk.",
+                })
             return res, 290, 110, True
 
         # Task: Diagnosis
@@ -401,6 +503,16 @@ class LLMClient:
                 "confidence": 0.95,
             })
             return res, 310, 110, True
+
+        # Task: Ultra Patch Security Self-Review (FR-B6)
+        if task == "patch_security_review" or "security review of this generated patch" in lower_prompt:
+            if any(bad in lower_prompt for bad in ("subprocess", "os.system", "eval(", "drop table")):
+                return "REJECT: patch introduces forbidden execution or destructive SQL primitive", 190, 18, True
+            return "APPROVED", 180, 10, True
+
+        # Task: Secret Confirmation (FR-S1 Nano confirmation)
+        if task == "secret_confirmation":
+            return "CONFIRMED", 120, 8, True
 
         # Task: Code Patch Generation (Builder)
         if "patch" in task or "regression test" in lower_prompt:

@@ -363,7 +363,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ onOpenControls
 };
 
 export const MobileShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { currentView, setCurrentView, autonomyState } = useAlexia();
+  const { currentView, setCurrentView, autonomyState, openAuthModal } = useAlexia();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
 
@@ -432,7 +432,7 @@ export const MobileShell: React.FC<{ children: React.ReactNode }> = ({ children 
             </div>
           </div>
 
-          {/* Right: Quick Autonomy Pill + Scenario action + ThemeToggle */}
+          {/* Right: Quick Autonomy Pill + Scenario action + Operator Auth + ThemeToggle */}
           <div className="flex items-center gap-1.5 sm:gap-2">
             {/* Quick Autonomy Status Pill */}
             <button
@@ -463,6 +463,16 @@ export const MobileShell: React.FC<{ children: React.ReactNode }> = ({ children 
               aria-label="Run Scenarios"
             >
               <PlayCircle size={18} />
+            </button>
+
+            {/* Operator Session & Passkeys */}
+            <button
+              onClick={openAuthModal}
+              className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--accent-primary)] hover:bg-[var(--surface-hover)] cursor-pointer"
+              title="Operator Sign-In & Passkeys"
+              aria-label="Operator Authentication"
+            >
+              <Fingerprint size={17} />
             </button>
 
             {/* Theme Toggle */}

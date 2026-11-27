@@ -5,13 +5,14 @@ Implements PRD Section 5.1, 5.2, and FR-C2:
 - Executes the core autonomous loop:
   DETECT -> TRIAGE -> SNAPSHOT -> DIAGNOSE -> PLAN -> ACT -> VERIFY -> LEARN
 - Coordinates multi-agent collaboration across Healer, Sentinel, Builder, Deployer, and Integrity.
-- Dispatches Push Notifications for critical/high incidents.
+- Persists and dispatches redacted Notifications for web and mobile companion clients.
 """
 
 from __future__ import annotations
+
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from alexia.actions.executor import get_executor
 from alexia.agents.builder import get_builder_agent
@@ -20,8 +21,10 @@ from alexia.agents.healer import get_healer_agent
 from alexia.agents.integrity import get_integrity_agent
 from alexia.agents.sentinel import get_sentinel_agent
 from alexia.core.bus import get_event_bus
+from alexia.core.redact import redact
 from alexia.core.router import get_model_router
 from alexia.core.schemas import Event, Incident, Notification, generate_id
+from alexia.core.state_store import get_state_store
 
 logger = logging.getLogger("alexia.orchestrator")
 
@@ -29,40 +32,56 @@ logger = logging.getLogger("alexia.orchestrator")
 class Orchestrator:
     """Central autonomous engine coordinating all specialized agents."""
 
-    def __init__(self):
-        self.bus = get_event_bus()
-        self.router = get_model_router()
-        self.executor = get_executor()
-        self.healer = get_healer_agent()
-        self.sentinel = get_sentinel_agent()
-        self.builder = get_builder_agent()
-        self.deployer = get_deployer_agent()
-        self.integrity = get_integrity_agent()
+    @property
+    def bus(self):
+        return get_event_bus()
+
+    @property
+    def router(self):
+        return get_model_router()
+
+    @property
+    def executor(self):
+        return get_executor()
+
+    @property
+    def healer(self):
+        return get_healer_agent()
+
+    @property
+    def sentinel(self):
+        return get_sentinel_agent()
+
+    @property
+    def builder(self):
+        return get_builder_agent()
+
+    @property
+    def deployer(self):
+        return get_deployer_agent()
+
+    @property
+    def integrity(self):
+        return get_integrity_agent()
 
     def start(self) -> None:
-        """Register event handlers and subscribe to bus events."""
+        """Register event handlers on the active EventBus."""
         self.bus.subscribe("*", self.handle_bus_event)
         logger.info("Alexia Orchestrator subscribed to EventBus.")
 
     async def handle_bus_event(self, event: Event) -> None:
-        """Handle incoming telemetry events from collectors.
-
-        Agent loops make blocking calls (Token Factory HTTP, sandbox pytest runs), so each one runs on a
-        worker thread with its own event loop; the server loop keeps serving the API and SSE meanwhile.
-        """
+        """Handle incoming telemetry events on a worker thread so blocking calls never stall HTTP/SSE."""
         await asyncio.to_thread(asyncio.run, self._handle_event(event))
 
     async def _handle_event(self, event: Event) -> None:
         logger.info(f"Orchestrator received event: {event.kind} from {event.source} (severity: {event.severity})")
 
-        # Skip internal system notifications
         if event.source == "system.internal":
             return
 
-        # -------------------------------------------------------------------
         # 1. Security Breach Events (SQLi, Leaked Secret, Brute Force)
-        # -------------------------------------------------------------------
         if event.kind in ("sqli_pattern", "secret_in_diff", "bruteforce", "row_read_anomaly"):
+            redacted_data = redact(event.data)
             inc = Incident(
                 id=generate_id("inc"),
                 category="security",
@@ -71,14 +90,11 @@ class Orchestrator:
                 events=[event.id],
                 title=f"Security Alert: {event.kind} detected",
                 summary=f"Sentinel triggered on {event.kind} telemetry",
-                metadata={"kind": event.kind, "service": event.service, **event.data},
+                metadata={"kind": event.kind, "service": event.service, **redacted_data},
             )
             self.bus.create_incident(inc)
-
-            # Trigger push notification
             self._send_push(inc)
 
-            # Execute Sentinel loop
             await self.sentinel.handle_security_incident(
                 incident=inc,
                 attacker_ip=event.data.get("ip", "198.51.100.42"),
@@ -86,10 +102,9 @@ class Orchestrator:
                 query_log=event.data.get("query", ""),
             )
 
-        # -------------------------------------------------------------------
         # 2. Runtime Failure Events (Crash, OOM, 5xx Spikes, Disk Full)
-        # -------------------------------------------------------------------
         elif event.kind in ("container_exit", "oom", "health_fail", "error_spike", "disk_high"):
+            redacted_data = redact(event.data)
             inc = Incident(
                 id=generate_id("inc"),
                 category="unknown",
@@ -98,19 +113,15 @@ class Orchestrator:
                 events=[event.id],
                 title=f"Runtime Incident: {event.kind} on {event.service}",
                 summary=f"Healer investigating {event.kind} event",
-                metadata={"kind": event.kind, "service": event.service, **event.data},
+                metadata={"kind": event.kind, "service": event.service, **redacted_data},
             )
             self.bus.create_incident(inc)
-
             self._send_push(inc)
 
-            # Execute Healer loop
             error_msg = event.data.get("error", event.data.get("message", f"Container issue: {event.kind}"))
             await self.healer.handle_incident(incident=inc, error_text=error_msg)
 
-        # -------------------------------------------------------------------
         # 3. Deploy Request Events
-        # -------------------------------------------------------------------
         elif event.kind == "deploy_request":
             commit_sha = event.data.get("commit_sha", "c0ffee12")
             diff_text = event.data.get("diff", "")
@@ -125,10 +136,11 @@ class Orchestrator:
             )
 
     def _send_push(self, incident: Incident) -> None:
-        """Construct and send a redacted push notification (FR-M2, FR-M3)."""
+        """Construct, persist, and dispatch a redacted notification (FR-M2, FR-M3)."""
         try:
+            safe_title = str(redact(incident.title, mask_ips=True))
             summary = self.router.summarize_for_push(
-                incident_title=incident.title,
+                incident_title=safe_title,
                 severity=incident.severity,
                 actions_taken=[a.action for a in incident.plan] or ["autonomous guardian inspecting"],
             )
@@ -136,16 +148,15 @@ class Orchestrator:
                 id=generate_id("ntf"),
                 incident_id=incident.id,
                 severity=incident.severity,
-                title=incident.title,
+                title=safe_title,
                 body=summary,
                 deep_link=f"/m/incident/{incident.id}",
                 actions=["review", "reject"] if incident.severity in ("critical", "high") else [],
             )
 
-            # Broadcast through SSE to live web/mobile clients
-            self.bus.broadcast_sse({"type": "notification", "data": notif.model_dump()})
+            stored = get_state_store().record_notification(notif.model_dump())
+            self.bus.broadcast_sse({"type": "notification", "data": stored})
 
-            # Send via remote push sender if configured
             from alexia.remote.push import send_push_notification
             send_push_notification(notif)
         except Exception as e:

@@ -122,7 +122,7 @@ $watchdogName = "Alexia watchdog"
 function Stop-Platform {
   Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
   Get-CimInstance Win32_Process | Where-Object {
-    ($_.Name -eq "AlexiaServer.exe") -or
+    ($_.Name -eq "AlexiaServer.exe" -and $_.ExecutablePath -like "$Root\*") -or
     ($_.Name -eq "python.exe" -and $_.CommandLine -like "*$app*")
   } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
   Start-Sleep -Seconds 2
@@ -178,17 +178,27 @@ $newAlerts = $false
 
 if ($firstInstall) {
   Say "Writing initial settings to $envFile"
+  $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+
   $bytes = New-Object byte[] 36
-  [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+  $rng.GetBytes($bytes)
   $jwtSecret = [Convert]::ToBase64String($bytes)
+
+  $secBytes = New-Object byte[] 36
+  $rng.GetBytes($secBytes)
+  $secretKey = [Convert]::ToBase64String($secBytes)
+
+  $whBytes = New-Object byte[] 32
+  $rng.GetBytes($whBytes)
+  $webhookSecret = ([BitConverter]::ToString($whBytes).Replace("-", "").ToLower())
 
   $pwChars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
   $pwBytes = New-Object byte[] 16
-  [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($pwBytes)
+  $rng.GetBytes($pwBytes)
   $adminPassword = -join ($pwBytes | ForEach-Object { $pwChars[$_ % $pwChars.Length] })
 
   $topicBytes = New-Object byte[] 6
-  [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($topicBytes)
+  $rng.GetBytes($topicBytes)
   $ntfyTopic = "alexia-" + ([BitConverter]::ToString($topicBytes).Replace("-", "").ToLower())
   $ntfyUrl = "https://ntfy.sh/$ntfyTopic"
   $newAlerts = $true
@@ -198,12 +208,20 @@ if ($firstInstall) {
 # After editing: restart from Alexia Server Manager or run C:\Alexia\restart.cmd
 PORT=8080
 HOST=0.0.0.0
+ALEXIA_ENV=production
+ALEXIA_DEMO_MODE=0
+ALEXIA_COLLECTORS=on
+ALEXIA_ALLOW_SIMULATED_HEALTH=0
+ALEXIA_ALLOW_UNSIGNED_WEBHOOKS=0
 ALEXIA_DATA_DIR=$data
 ALEXIA_BACKUP_DIR=$backups
+ALEXIA_LOG_DIR=$logs
 ALEXIA_BACKUP_COPY_DIR=
 ALEXIA_BACKUP_KEEP=14
 ALEXIA_BACKUP_HOUR=3
+ALEXIA_SECRET_KEY=$secretKey
 ALEXIA_JWT_SECRET=$jwtSecret
+GITHUB_WEBHOOK_SECRET=$webhookSecret
 ALEXIA_ADMIN_EMAIL=admin@alexia.local
 ALEXIA_ADMIN_PASSWORD=$adminPassword
 ALEXIA_ALERT_NTFY=$ntfyUrl
@@ -228,6 +246,11 @@ SHOPLITE_URL=http://127.0.0.1:8000
   if (-not (Select-String -Path $envFile -Pattern "^\s*ALEXIA_BACKUP_DIR=" -Quiet)) {
     Set-Setting $envFile "ALEXIA_BACKUP_DIR" $backups
   }
+  if (-not (Select-String -Path $envFile -Pattern "^\s*ALEXIA_SECRET_KEY=" -Quiet)) {
+    $secBytes = New-Object byte[] 36
+    [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($secBytes)
+    Set-Setting $envFile "ALEXIA_SECRET_KEY" ([Convert]::ToBase64String($secBytes))
+  }
 }
 
 $port = 8080
@@ -251,6 +274,7 @@ cd /d "$app"
 set ALEXIA_SUPERVISED=1
 set ALEXIA_DATA_DIR=$data
 set ALEXIA_BACKUP_DIR=$backups
+set ALEXIA_LOG_DIR=$logs
 :loop
 if exist "$logs\alexia.log" (
   for %%F in ("$logs\alexia.log") do if %%~zF GTR 20971520 move /y "$logs\alexia.log" "$logs\alexia.log.1" >nul
@@ -439,7 +463,6 @@ if ($firstInstall) {
   Write-Host ""
   Write-Host "   First admin    admin@alexia.local"
   Write-Host "   Password       $adminPassword   (shown once - change it from the console)"
-  Write-Host "   Demo operator  demo / alexiaguardian2026"
 }
 if ($newAlerts -and $ntfyUrl) {
   Write-Host ""

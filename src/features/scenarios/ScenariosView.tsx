@@ -14,7 +14,9 @@ import { formatRelativeTime } from '../../lib/formatters';
 export const ScenariosView: React.FC = () => {
   const {
     scenarios,
+    incidents,
     activeScenarioRun,
+    lastScenarioIncidentId,
     runScenario,
     resetEnvironment,
     setCurrentView,
@@ -24,6 +26,7 @@ export const ScenariosView: React.FC = () => {
   const [confirmingScenario, setConfirmingScenario] = useState<ScenarioDefinition | null>(null);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [resetFeedback, setResetFeedback] = useState<{ ok: boolean; text: string } | null>(null);
 
   const handleStartScenario = async () => {
     if (!confirmingScenario) return;
@@ -34,10 +37,15 @@ export const ScenariosView: React.FC = () => {
 
   const handleReset = async () => {
     setIsResetting(true);
-    await resetEnvironment();
+    const res = await resetEnvironment();
     setIsResetting(false);
     setShowResetDialog(false);
+    setResetFeedback({ ok: res.success, text: res.message });
+    setTimeout(() => setResetFeedback(null), 5000);
   };
+
+  const resultingIncidentId =
+    activeScenarioRun?.incident_id || lastScenarioIncidentId || incidents[0]?.id || null;
 
   return (
     <div className="space-y-6">
@@ -61,12 +69,35 @@ export const ScenariosView: React.FC = () => {
         </button>
       </div>
 
+      {resetFeedback && (
+        <div
+          role="status"
+          className="p-3 rounded-xl border text-xs flex items-center gap-2"
+          style={{
+            backgroundColor: resetFeedback.ok ? 'var(--status-success-bg)' : 'var(--status-critical-bg)',
+            borderColor: resetFeedback.ok ? 'var(--status-success-border)' : 'var(--status-critical-border)',
+            color: resetFeedback.ok ? 'var(--status-success)' : 'var(--status-critical)',
+          }}
+        >
+          <CheckCircle2 size={14} />
+          <span>{resetFeedback.text}</span>
+        </div>
+      )}
+
       {/* Active Running Scenario Panel: Only displayed when active */}
       {activeScenarioRun && (
         <div className="web-card p-5 border-[var(--border-highlight)] ring-1 ring-[var(--accent-primary)] space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-[var(--accent-primary)] animate-ping" />
+              <span
+                className={`w-2.5 h-2.5 rounded-full ${
+                  activeScenarioRun.status === 'failed'
+                    ? 'bg-[var(--status-critical)]'
+                    : activeScenarioRun.status === 'completed'
+                    ? 'bg-[var(--status-success)]'
+                    : 'bg-[var(--accent-primary)] animate-ping'
+                }`}
+              />
               <span className="font-semibold text-sm text-[var(--text-primary)] font-mono">
                 Executing Scenario {activeScenarioRun.scenario_id}
               </span>
@@ -84,12 +115,25 @@ export const ScenariosView: React.FC = () => {
             />
           </div>
 
+          {activeScenarioRun.log_output && activeScenarioRun.log_output.length > 0 && (
+            <div
+              data-testid="scenario-live-log"
+              className="p-3 rounded-lg bg-[var(--bg-main)] border border-[var(--border-subtle)] font-mono text-[11px] text-[var(--text-secondary)] max-h-36 overflow-y-auto space-y-1"
+            >
+              {activeScenarioRun.log_output.map((line, idx) => (
+                <div key={`${activeScenarioRun.run_id}-log-${idx}`} className="leading-relaxed">
+                  {line}
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="flex items-center justify-between text-xs text-[var(--text-secondary)]">
             <span>{activeScenarioRun.current_step}</span>
-            {activeScenarioRun.status === 'completed' && (
+            {activeScenarioRun.status === 'completed' && resultingIncidentId && (
               <button
                 onClick={() => {
-                  setSelectedIncidentId('DEMO-INC-2026-0841');
+                  setSelectedIncidentId(resultingIncidentId);
                   setCurrentView('incidents');
                 }}
                 className="text-xs text-[var(--accent-primary)] font-semibold hover:underline flex items-center gap-1 cursor-pointer"
@@ -110,26 +154,71 @@ export const ScenariosView: React.FC = () => {
             className="web-card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-[var(--border-medium)] transition-colors"
           >
             <div className="space-y-1.5 flex-1">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="px-2 py-0.5 rounded text-xs font-bold font-mono bg-[var(--accent-muted)] text-[var(--accent-primary)]">
                   {scenario.id}
                 </span>
                 <h3 className="font-semibold text-sm text-[var(--text-primary)]">
                   {scenario.name}
                 </h3>
+                {scenario.last_run && (
+                  <span
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono border"
+                    style={{
+                      backgroundColor:
+                        scenario.last_run.status === 'completed'
+                          ? 'var(--status-success-bg)'
+                          : 'var(--surface-hover)',
+                      borderColor:
+                        scenario.last_run.status === 'completed'
+                          ? 'var(--status-success-border)'
+                          : 'var(--border-subtle)',
+                      color:
+                        scenario.last_run.status === 'completed'
+                          ? 'var(--status-success)'
+                          : 'var(--text-secondary)',
+                    }}
+                  >
+                    {scenario.last_run.status === 'completed' ? (
+                      <CheckCircle2 size={11} />
+                    ) : (
+                      <Activity size={11} />
+                    )}
+                    <span>
+                      Last: {scenario.last_run.status} ({formatRelativeTime(scenario.last_run.timestamp)})
+                    </span>
+                  </span>
+                )}
               </div>
               <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
                 {scenario.demonstrates}
               </p>
-              <div className="flex items-center gap-4 text-[11px] text-[var(--text-muted)] font-mono pt-1">
+              <div className="flex flex-wrap items-center gap-4 text-[11px] text-[var(--text-muted)] font-mono pt-1">
                 <span>Est: {scenario.estimated_duration_seconds}s</span>
                 <span>Agents: {scenario.agents_involved.join(', ')}</span>
+                {scenario.last_run?.incident_id && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedIncidentId(scenario.last_run!.incident_id!);
+                      setCurrentView('incidents');
+                    }}
+                    className="text-[var(--accent-primary)] hover:underline cursor-pointer"
+                  >
+                    Incident: {scenario.last_run.incident_id}
+                  </button>
+                )}
               </div>
             </div>
 
             <div className="shrink-0 flex items-center gap-3">
               <button
-                disabled={activeScenarioRun?.status === 'injecting' || activeScenarioRun?.status === 'detecting' || activeScenarioRun?.status === 'remediating'}
+                disabled={
+                  activeScenarioRun?.status === 'starting' ||
+                  activeScenarioRun?.status === 'injecting' ||
+                  activeScenarioRun?.status === 'detecting' ||
+                  activeScenarioRun?.status === 'remediating'
+                }
                 onClick={() => setConfirmingScenario(scenario)}
                 className="web-btn-primary text-xs disabled:opacity-50"
               >

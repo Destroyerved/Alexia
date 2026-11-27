@@ -8,8 +8,17 @@ import { AuditRecord, SnapshotRecord } from '../types/audit';
 import { ScenarioDefinition, ScenarioId, ScenarioRunState } from '../types/scenarios';
 import { SecurityReport } from '../types/reports';
 import { ConnectionState, AlexiaEventStream, StreamEvent } from '../lib/event-stream';
-import { ActionResult, DashboardPayload, apiClient } from '../lib/api';
+import {
+  ActionResult,
+  BlockedIpEntry,
+  CollectorStatusPayload,
+  DashboardPayload,
+  OperatorSessionInfo,
+  RegisteredDevice,
+  apiClient,
+} from '../lib/api';
 import { toDeploymentRecord, toScenarioDefinition, toSecurityReport, toSnapshotRecord } from '../lib/adapters';
+import { AuthModal } from '../components/auth/AuthModal';
 import {
   INITIAL_AGENTS,
   INITIAL_ORCHESTRATOR,
@@ -38,6 +47,14 @@ export interface AppNotification {
 export interface AuditChainStatus {
   verified: boolean;
   rows: number;
+  headSignature?: string;
+}
+
+interface StepUpPromptRequest {
+  title?: string;
+  description?: string;
+  actionId?: string;
+  resolve: (token: string | null) => void;
 }
 
 interface AlexiaContextType {
@@ -62,10 +79,20 @@ interface AlexiaContextType {
   scenarios: ScenarioDefinition[];
   securityReports: SecurityReport[];
   notifications: AppNotification[];
+  devices: RegisteredDevice[];
+  blockedIps: BlockedIpEntry[];
+  collectors: CollectorStatusPayload | null;
+  platformSettings: Record<string, any>;
+
+  // Auth & Hydration state
+  isHydrating: boolean;
+  loadError: string | null;
+  sessionInfo: OperatorSessionInfo | null;
+  openAuthModal: () => void;
+  requestStepUp: (opts?: { title?: string; description?: string; actionId?: string }) => Promise<string | null>;
 
   // Global safety & environment
   autonomyState: 'Active' | 'Paused';
-  /** Pause, or resume with a step-up TOTP code (prompted for when omitted). */
   toggleAutonomy: (stepUpCode?: string) => Promise<ActionResult>;
   environment: string;
   setEnvironment: (env: string) => void;
@@ -76,14 +103,25 @@ interface AlexiaContextType {
 
   // Actions & Operations
   pendingActionId: string | null;
-  approveAction: (approvalId: string, note?: string, stepUpCode?: string) => Promise<ActionResult>;
+  approveAction: (approvalId: string, note?: string, stepUpCode?: string, preVerifiedToken?: string) => Promise<ActionResult>;
   rejectAction: (approvalId: string, reason: string) => Promise<ActionResult>;
+  reinvestigateIncident: (incidentId: string) => Promise<ActionResult>;
   activeScenarioRun: ScenarioRunState | null;
+  lastScenarioIncidentId: string | null;
   runScenario: (scenarioId: ScenarioId) => Promise<void>;
-  resetEnvironment: () => Promise<void>;
+  resetEnvironment: () => Promise<ActionResult>;
   rollbackDeployment: (serviceName: string, targetImage: string, reason: string, deploymentId?: string) => Promise<ActionResult>;
   restartService: (serviceId: string) => Promise<ActionResult>;
   takeSnapshot: () => Promise<ActionResult>;
+  verifySnapshot: (snapshotId: string) => Promise<ActionResult>;
+  restoreSnapshot: (snapshotId: string) => Promise<ActionResult>;
+  runIntegrityCheck: () => Promise<ActionResult & { tables?: Record<string, number> }>;
+  runMigrationGuard: (sql: string) => ReturnType<typeof apiClient.runMigrationGuard>;
+  blockIp: (ip: string, durationMinutes?: number, reason?: string) => Promise<ActionResult>;
+  unblockIp: (ip: string) => Promise<ActionResult>;
+  revokeDevice: (deviceId: string) => Promise<ActionResult>;
+  savePlatformSettings: (updates: Record<string, any>) => Promise<ActionResult>;
+  subscribeWebPush: () => Promise<ActionResult>;
   verifyAuditChain: () => Promise<ActionResult>;
   refresh: () => Promise<void>;
   markNotificationRead: (id: string) => void;
@@ -94,22 +132,27 @@ const AlexiaContext = createContext<AlexiaContextType | undefined>(undefined);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Push-notification deep links (/m/approvals/<id>, /m/incident/<id>) -> dashboard view ids. */
 function viewForDeepLink(link?: string): string | undefined {
   if (!link) return undefined;
   if (link.includes('/approvals')) return 'approvals';
   if (link.includes('/incident')) return 'incidents';
+  if (link.includes('/security') || link.includes('/reports')) return 'security';
   return undefined;
 }
 
+function initialViewFromLocation(): string {
+  if (typeof window === 'undefined') return 'overview';
+  return viewForDeepLink(window.location.pathname) || 'overview';
+}
+
 export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [currentView, setCurrentView] = useState<string>('overview');
+  const [currentView, setCurrentView] = useState<string>(initialViewFromLocation);
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>('DEMO-INC-2026-0841');
 
   const [incidents, setIncidents] = useState<Incident[]>(INITIAL_INCIDENTS);
   const [approvals, setApprovals] = useState<ApprovalRequest[]>(INITIAL_APPROVALS);
   const [agents, setAgents] = useState<AgentInfo[]>(INITIAL_AGENTS);
-  const [orchestrator] = useState<OrchestratorInfo>(INITIAL_ORCHESTRATOR);
+  const [orchestrator, setOrchestrator] = useState<OrchestratorInfo>(INITIAL_ORCHESTRATOR);
   const [services, setServices] = useState<ServiceItem[]>(INITIAL_SERVICES);
   const [deployments, setDeployments] = useState<DeploymentRecord[]>(INITIAL_DEPLOYMENTS);
   const [modelCalls, setModelCalls] = useState<ModelCallRecord[]>(INITIAL_MODEL_CALLS);
@@ -119,6 +162,27 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [snapshots, setSnapshots] = useState<SnapshotRecord[]>(INITIAL_SNAPSHOTS);
   const [scenarios, setScenarios] = useState<ScenarioDefinition[]>(SCENARIO_CATALOG);
   const [securityReports, setSecurityReports] = useState<SecurityReport[]>(INITIAL_SECURITY_REPORTS);
+  const [devices, setDevices] = useState<RegisteredDevice[]>([]);
+  const [blockedIps, setBlockedIps] = useState<BlockedIpEntry[]>([]);
+  const [collectors, setCollectors] = useState<CollectorStatusPayload | null>(null);
+  const [platformSettings, setPlatformSettings] = useState<Record<string, any>>({
+    demo_mode: true,
+    redaction_enabled: true,
+    step_up_auth_required: true,
+    daily_usd_budget: 10.0,
+    daily_token_budget: 5000000,
+    webhook_signature_verification: true,
+    auto_snapshot_before_tier1: true,
+    notifications_muted: false,
+    quiet_hours_start: '',
+    quiet_hours_end: '',
+  });
+
+  const [isHydrating, setIsHydrating] = useState<boolean>(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [sessionInfo, setSessionInfo] = useState<OperatorSessionInfo | null>(null);
+  const [loginModalOpen, setLoginModalOpen] = useState<boolean>(false);
+  const [stepUpPrompt, setStepUpPrompt] = useState<StepUpPromptRequest | null>(null);
 
   const [autonomyState, setAutonomyState] = useState<'Active' | 'Paused'>('Active');
   const [environment, setEnvironment] = useState<string>('Sandbox (ShopLite Docker)');
@@ -129,35 +193,52 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [activeScenarioRun, setActiveScenarioRun] = useState<ScenarioRunState | null>(null);
+  const [lastScenarioIncidentId, setLastScenarioIncidentId] = useState<string | null>(null);
 
   const [notifications, setNotifications] = useState<AppNotification[]>([
     {
       id: 'notif-1',
       title: 'Tier 1 Approval Required',
-      description: 'Deployer requested permission to roll back canary shoplite-api v2.4.2.',
+      description: 'Deployer requested permission to merge fix PR #142.',
       severity: 'high',
       timestamp: new Date(Date.now() - 1000 * 60 * 4).toISOString(),
       read: false,
       link_to: 'approvals',
     },
-    {
-      id: 'notif-2',
-      title: 'SQL Injection Resolved',
-      description: 'DEMO-INC-2026-0841 successfully verified and mitigated by Sentinel.',
-      severity: 'critical',
-      timestamp: new Date(Date.now() - 1000 * 60 * 10).toISOString(),
-      read: false,
-      link_to: 'incidents',
-    },
   ]);
+
+  const requestStepUp = useCallback(
+    (opts?: { title?: string; description?: string; actionId?: string }): Promise<string | null> => {
+      return new Promise((resolve) => {
+        setStepUpPrompt({
+          title: opts?.title,
+          description: opts?.description,
+          actionId: opts?.actionId,
+          resolve,
+        });
+      });
+    },
+    []
+  );
+
+  const openAuthModal = useCallback(() => {
+    setLoginModalOpen(true);
+  }, []);
 
   const pushNotification = useCallback((n: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => {
     setNotifications((prev) =>
-      [{ ...n, id: `ntf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, timestamp: new Date().toISOString(), read: false }, ...prev].slice(0, 50)
+      [
+        {
+          ...n,
+          id: `ntf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          timestamp: new Date().toISOString(),
+          read: false,
+        },
+        ...prev,
+      ].slice(0, 50)
     );
   }, []);
 
-  // Periodic heartbeat / timestamp update
   useEffect(() => {
     const timer = setInterval(() => {
       setLastUpdated(new Date().toISOString());
@@ -165,7 +246,6 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     return () => clearInterval(timer);
   }, []);
 
-  // Live backend is the single source of truth: replace every list, even when it is empty
   const applyDashboard = useCallback((payload: DashboardPayload) => {
     const liveIncidents = payload.incidents ?? [];
     setIncidents(liveIncidents);
@@ -180,30 +260,88 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setModelCalls(payload.model_calls ?? []);
     if (payload.model_summary) setModelSummary(payload.model_summary);
     setAuditLogs(payload.audit?.entries ?? []);
-    setAuditChain({ verified: Boolean(payload.audit?.chain_verified), rows: payload.audit?.verified_rows ?? 0 });
-    // Agent cards derived from open incidents + each agent's audit-chain activity
+    setAuditChain({
+      verified: Boolean(payload.audit?.chain_verified),
+      rows: payload.audit?.verified_rows ?? 0,
+      headSignature: payload.audit?.entries?.[0]?.signature,
+    });
     if (payload.agents?.length) setAgents(payload.agents);
+    if (payload.blocked_ips) setBlockedIps(payload.blocked_ips);
+    if (payload.collectors) setCollectors(payload.collectors);
+    if (payload.settings) {
+      setPlatformSettings(payload.settings);
+      if (typeof payload.settings.environment === 'string' && payload.settings.environment) {
+        setEnvironment(payload.settings.environment);
+      }
+      setIsDemoMode(Boolean(payload.settings.demo_mode ?? false));
+    }
+    if (Array.isArray(payload.notifications)) {
+      setNotifications(
+        payload.notifications.map((n: any) => ({
+          id: String(n.id),
+          title: String(n.title || 'Alexia Alert'),
+          description: String(n.body || n.message || ''),
+          severity: n.severity === 'critical' ? 'critical' : n.severity === 'high' ? 'high' : 'info',
+          timestamp: String(n.created_at || n.timestamp || new Date().toISOString()),
+          read: Boolean(n.read),
+          link_to: viewForDeepLink(n.deep_link),
+        }))
+      );
+    }
+
+    const activeCount = liveIncidents.filter((i) => i.status !== 'resolved' && i.status !== 'escalated').length;
+    setOrchestrator((prev) => ({
+      ...prev,
+      state: payload.is_autonomy_paused
+        ? 'Waiting for approval'
+        : activeCount > 0
+        ? 'Working'
+        : 'Idle',
+      active_workflow: payload.is_autonomy_paused
+        ? 'Autonomy paused by operator'
+        : activeCount > 0
+        ? `Coordinating ${activeCount} active remediation workflow${activeCount === 1 ? '' : 's'}`
+        : 'Monitoring ingress telemetry & Docker health',
+    }));
+
     setAutonomyState(payload.is_autonomy_paused ? 'Paused' : 'Active');
-    setIsDemoMode(Boolean(payload.settings?.demo_mode ?? true));
+    setLoadError(null);
     setLastUpdated(new Date().toISOString());
   }, []);
 
   const refresh = useCallback(async () => {
-    const payload = await apiClient.fetchDashboard();
-    if (payload) applyDashboard(payload);
+    const res = await apiClient.fetchDashboard();
+    if (res.authRequired) {
+      setIsLiveBackend(true);
+      setLoginModalOpen(true);
+      setLoadError('Sign in required to view production telemetry.');
+      const me = await apiClient.getAuthSession();
+      if (me) {
+        setSessionInfo(me);
+        setIsDemoMode(me.demo_mode);
+      }
+      return;
+    }
+    if (res.payload) {
+      setIsLiveBackend(true);
+      applyDashboard(res.payload);
+      const [me, devs] = await Promise.all([apiClient.getAuthSession(), apiClient.getDevices()]);
+      if (me) setSessionInfo(me);
+      setDevices(devs);
+    } else if (res.error && apiClient.isLiveBackend()) {
+      setLoadError(res.error);
+    }
   }, [applyDashboard]);
 
-  // Coalesce bursts of SSE frames into one dashboard re-fetch
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleRefresh = useCallback(() => {
     if (refreshTimer.current) return;
     refreshTimer.current = setTimeout(() => {
       refreshTimer.current = null;
       void refresh();
-    }, 400);
+    }, 350);
   }, [refresh]);
 
-  // Hydrate from live backend when available and subscribe to SSE stream
   useEffect(() => {
     let mounted = true;
     let stream: AlexiaEventStream | null = null;
@@ -228,32 +366,61 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         });
       } else if (
         evtType === 'approval_decided' ||
+        evtType === 'approval_requested' ||
         evtType === 'deployment_rolled_back' ||
-        evtType === 'service_restarted'
+        evtType === 'service_restarted' ||
+        evtType === 'settings_updated' ||
+        evtType === 'autonomy_changed' ||
+        evtType === 'snapshot_created' ||
+        evtType === 'device_revoked' ||
+        evtType === 'environment_reset'
       ) {
         scheduleRefresh();
       }
     };
 
+    setIsHydrating(true);
     apiClient
       .fetchDashboard()
-      .then((payload) => {
+      .then(async (res) => {
         if (!mounted) return;
-        if (!payload) {
-          // Static/offline hosting: keep the bundled demo data and say so
+        setIsHydrating(false);
+        if (res.authRequired) {
+          setIsLiveBackend(true);
+          setIsDemoMode(false);
+          setLoginModalOpen(true);
+          const me = await apiClient.getAuthSession();
+          if (mounted && me) setSessionInfo(me);
+          return;
+        }
+        if (!res.payload) {
           setConnectionState('Offline');
           return;
         }
         setIsLiveBackend(true);
-        applyDashboard(payload);
-        void apiClient.getScenarios().then((catalog) => {
-          if (mounted && catalog?.length) setScenarios(catalog.map(toScenarioDefinition));
-        });
-        stream = new AlexiaEventStream(apiClient.getEventStreamUrl());
-        stream.connect(handleEvent, (state) => setConnectionState(state));
+        applyDashboard(res.payload);
+        const [catalog, me, devs] = await Promise.all([
+          apiClient.getScenarios(),
+          apiClient.getAuthSession(),
+          apiClient.getDevices(),
+        ]);
+        if (!mounted) return;
+        if (catalog?.length) setScenarios(catalog.map(toScenarioDefinition));
+        if (me) setSessionInfo(me);
+        setDevices(devs);
+
+        stream = new AlexiaEventStream(apiClient.getEventStreamUrl(), () => apiClient.getSessionToken());
+        stream.connect(
+          handleEvent,
+          (state) => setConnectionState(state),
+          () => scheduleRefresh()
+        );
       })
       .catch(() => {
-        if (mounted) setConnectionState('Offline');
+        if (mounted) {
+          setIsHydrating(false);
+          setConnectionState('Offline');
+        }
       });
 
     return () => {
@@ -263,7 +430,6 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     };
   }, [applyDashboard, pushNotification, scheduleRefresh]);
 
-  // Demo-mode only: local audit rows so the offline walkthrough still shows the ledger moving
   const appendDemoAudit = useCallback(
     (entry: Omit<AuditRecord, 'id' | 'timestamp' | 'previous_hash' | 'verification_status'>) => {
       setAuditLogs((logs) => [
@@ -292,28 +458,33 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           target: 'GlobalGuardianEngine',
           outcome: 'SUCCESS',
           current_hash: 'f9410ea821bb40219410ea821bb40219410ea821bb40219410ea821bb40219',
-          signature: 'ed25519:safety_lock_sig...',
+          signature: 'hmac-sha256:demo',
         });
         return { success: true, message: pause ? 'Autonomy paused (demo mode)' : 'Autonomy resumed (demo mode)' };
       }
 
       let stepUpToken: string | undefined;
       if (!pause) {
-        // Resuming is the risky direction: step-up within the last 5 minutes (FR-M6)
-        const code =
-          stepUpCode ??
-          window.prompt('Resuming autonomy needs step-up authentication.\nEnter your 6-digit authenticator code (demo: 123456):') ??
-          '';
-        if (!code.trim()) return { success: false, message: 'Resume cancelled: step-up code required.' };
-        const su = await apiClient.stepUp(code.trim());
-        if (!su.token) {
-          pushNotification({ title: 'Step-up failed', description: su.error || 'Invalid code', severity: 'high' });
-          return { success: false, message: su.error || 'Step-up failed' };
+        if (stepUpCode?.trim()) {
+          const su = await apiClient.stepUp(stepUpCode.trim(), sessionInfo?.username || 'demo');
+          if (!su.token) {
+            pushNotification({ title: 'Step-up failed', description: su.error || 'Invalid code', severity: 'high' });
+            return { success: false, message: su.error || 'Step-up failed' };
+          }
+          stepUpToken = su.token;
+        } else {
+          const modalToken = await requestStepUp({
+            title: 'Resume Guardian Autonomy',
+            description: 'Resuming autonomous Tier-0 remediation requires Passkey or TOTP step-up verification.',
+          });
+          if (!modalToken) {
+            return { success: false, message: 'Resume cancelled: step-up verification required.' };
+          }
+          stepUpToken = modalToken;
         }
-        stepUpToken = su.token;
       }
 
-      const res = await apiClient.toggleAutonomy(pause, 'Operator (web dashboard)', stepUpToken);
+      const res = await apiClient.toggleAutonomy(pause, sessionInfo?.username || 'Operator', stepUpToken);
       if (res.success) {
         setAutonomyState(res.is_paused ? 'Paused' : 'Active');
       } else {
@@ -322,21 +493,41 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       scheduleRefresh();
       return res;
     },
-    [autonomyState, appendDemoAudit, pushNotification, scheduleRefresh]
+    [autonomyState, appendDemoAudit, pushNotification, requestStepUp, scheduleRefresh, sessionInfo]
   );
 
   const approveAction = useCallback(
-    async (approvalId: string, note?: string, stepUpCode?: string): Promise<ActionResult> => {
+    async (
+      approvalId: string,
+      note?: string,
+      stepUpCode?: string,
+      preVerifiedToken?: string
+    ): Promise<ActionResult> => {
       setPendingActionId(approvalId);
       try {
         if (apiClient.isLiveBackend()) {
-          if (!stepUpCode?.trim()) {
-            return { success: false, message: 'Enter your step-up code (passkey/TOTP) to approve a Tier-1 action.' };
+          let tokenToUse = preVerifiedToken;
+          if (!tokenToUse) {
+            if (stepUpCode?.trim()) {
+              const su = await apiClient.stepUp(stepUpCode.trim(), sessionInfo?.username || 'demo', approvalId);
+              if (!su.token) return { success: false, message: su.error || 'Step-up authentication failed' };
+              tokenToUse = su.token;
+            } else {
+              const modalTok = await requestStepUp({
+                title: `Authorize ${approvalId}`,
+                description: 'Tier-1 actions require Passkey / Biometric or TOTP step-up.',
+                actionId: approvalId,
+              });
+              if (!modalTok) return { success: false, message: 'Authorization cancelled.' };
+              tokenToUse = modalTok;
+            }
           }
-          const su = await apiClient.stepUp(stepUpCode.trim());
-          if (!su.token) return { success: false, message: su.error || 'Step-up authentication failed' };
           const result = await apiClient.submitApprovalDecision(
-            approvalId, 'approved', note, 'Operator (web dashboard)', su.token
+            approvalId,
+            'approved',
+            note,
+            sessionInfo?.username || 'Operator (web dashboard)',
+            tokenToUse
           );
           await refresh();
           return result;
@@ -347,55 +538,29 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           setApprovals((prev) =>
             prev.map((app) =>
               app.id === approvalId
-                ? { ...app, status: 'approved', decided_by: 'human_operator (demo@alexia.local)', decided_at: new Date().toISOString() }
+                ? { ...app, status: 'approved', decided_by: 'human_operator', decided_at: new Date().toISOString() }
                 : app
             )
           );
-          const targetApproval = approvals.find((a) => a.id === approvalId);
-          if (targetApproval) {
-            setIncidents((prev) =>
-              prev.map((inc) =>
-                inc.id === targetApproval.incident_id
-                  ? {
-                      ...inc,
-                      status: 'acting',
-                      approval_required: false,
-                      stages: inc.stages.map((s) =>
-                        s.stage === 'action'
-                          ? { ...s, status: 'completed', explanation: `Action approved and executed: ${targetApproval.action_name}` }
-                          : s.stage === 'verification'
-                          ? { ...s, status: 'in_progress', explanation: 'Deployer verifying container health probes...' }
-                          : s
-                      ),
-                    }
-                  : inc
-              )
-            );
-            appendDemoAudit({
-              actor: 'human_operator (demo@alexia.local)',
-              event: 'APPROVAL_GRANTED',
-              action: targetApproval.action_name,
-              target: targetApproval.affected_service,
-              outcome: 'SUCCESS',
-              incident_id: targetApproval.incident_id,
-              current_hash: '9a81b4c7320fa9230571bc8819024a1b0924ec7108914b10549d88201a4fb9c1',
-              signature: 'ed25519:operator_approval_sig',
-            });
-          }
         }
         return result;
       } finally {
         setPendingActionId(null);
       }
     },
-    [approvals, appendDemoAudit, refresh]
+    [refresh, requestStepUp, sessionInfo]
   );
 
   const rejectAction = useCallback(
     async (approvalId: string, reason: string): Promise<ActionResult> => {
       setPendingActionId(approvalId);
       try {
-        const result = await apiClient.submitApprovalDecision(approvalId, 'rejected', reason, 'Operator (web dashboard)');
+        const result = await apiClient.submitApprovalDecision(
+          approvalId,
+          'rejected',
+          reason,
+          sessionInfo?.username || 'Operator (web dashboard)'
+        );
         if (apiClient.isLiveBackend()) {
           await refresh();
           return result;
@@ -404,49 +569,28 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           setApprovals((prev) =>
             prev.map((app) =>
               app.id === approvalId
-                ? {
-                    ...app,
-                    status: 'rejected',
-                    rejection_reason: reason,
-                    decided_by: 'human_operator (demo@alexia.local)',
-                    decided_at: new Date().toISOString(),
-                  }
+                ? { ...app, status: 'rejected', rejection_reason: reason, decided_at: new Date().toISOString() }
                 : app
             )
           );
-          const targetApproval = approvals.find((a) => a.id === approvalId);
-          if (targetApproval) {
-            setIncidents((prev) =>
-              prev.map((inc) =>
-                inc.id === targetApproval.incident_id
-                  ? {
-                      ...inc,
-                      status: 'escalated',
-                      stages: inc.stages.map((s) =>
-                        s.stage === 'action' ? { ...s, status: 'failed', explanation: `Action rejected by operator: ${reason}` } : s
-                      ),
-                    }
-                  : inc
-              )
-            );
-            appendDemoAudit({
-              actor: 'human_operator (demo@alexia.local)',
-              event: 'APPROVAL_REJECTED',
-              action: targetApproval.action_name,
-              target: targetApproval.affected_service,
-              outcome: 'DENIED',
-              incident_id: targetApproval.incident_id,
-              current_hash: '7781b4c7320fa9230571bc8819024a1b0924ec7108914b10549d88201a4fb9c9',
-              signature: 'ed25519:operator_rejection_sig',
-            });
-          }
         }
         return result;
       } finally {
         setPendingActionId(null);
       }
     },
-    [approvals, appendDemoAudit, refresh]
+    [refresh, sessionInfo]
+  );
+
+  const reinvestigateIncident = useCallback(
+    async (incidentId: string): Promise<ActionResult> => {
+      const res = await apiClient.investigateIncident(incidentId);
+      if (apiClient.isLiveBackend() && res.success) {
+        await refresh();
+      }
+      return res;
+    },
+    [refresh]
   );
 
   const rollbackDeployment = useCallback(
@@ -464,33 +608,9 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       setServices((prev) =>
         prev.map((s) => (s.name === serviceName ? { ...s, image: targetImage, status: 'healthy', uptime_seconds: 60 } : s))
       );
-      const now = new Date().toISOString();
-      const newDep: DeploymentRecord = {
-        id: `DEP-${Date.now().toString().slice(-6)}`,
-        service_name: serviceName,
-        image_tag: targetImage,
-        previous_known_good_image: targetImage,
-        trigger: 'rollback',
-        status: 'Successful',
-        started_at: now,
-        completed_at: now,
-        pre_deploy_gates: [{ name: 'Target Image Verification', passed: true, details: `Validated ${targetImage} in local cache`, timestamp: now }],
-        health_gates: [{ name: 'Healthz Endpoint', passed: true, details: 'HTTP 200 OK received in 3.4ms', timestamp: now }],
-        rollback_info: { is_rollback: true, target_image: targetImage, reason, executed_at: now },
-      };
-      setDeployments((prev) => [newDep, ...prev]);
-      appendDemoAudit({
-        actor: 'Deployer',
-        event: 'SERVICE_ROLLED_BACK',
-        action: `Rollback to ${targetImage}`,
-        target: serviceName,
-        outcome: 'ROLLED_BACK',
-        current_hash: '2281b4c7320fa9230571bc8819024a1b0924ec7108914b10549d88201a4fb999',
-        signature: 'ed25519:rollback_sig',
-      });
       return { success: true, message: `Rolled back ${serviceName} to ${targetImage} (demo mode)` };
     },
-    [deployments, appendDemoAudit, refresh]
+    [deployments, refresh]
   );
 
   const restartService = useCallback(
@@ -511,13 +631,99 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       : { success: false, message: 'Snapshot failed' };
   }, [refresh]);
 
+  const verifySnapshot = useCallback(async (snapshotId: string): Promise<ActionResult> => {
+    return apiClient.verifySnapshotById(snapshotId);
+  }, []);
+
+  const restoreSnapshot = useCallback(
+    async (snapshotId: string): Promise<ActionResult> => {
+      const res = await apiClient.restoreSnapshotById(snapshotId);
+      if (apiClient.isLiveBackend() && res.success) await refresh();
+      return res;
+    },
+    [refresh]
+  );
+
+  const runIntegrityCheck = useCallback(async () => {
+    const res = await apiClient.runIntegrityCheck();
+    if (apiClient.isLiveBackend() && res.success) await refresh();
+    return res;
+  }, [refresh]);
+
+  const runMigrationGuard = useCallback(async (sql: string) => {
+    return apiClient.runMigrationGuard(sql);
+  }, []);
+
+  const blockIp = useCallback(
+    async (ip: string, durationMinutes: number = 60, reason: string = 'Manual operator containment'): Promise<ActionResult> => {
+      const res = await apiClient.blockIp(ip, durationMinutes, reason);
+      if (apiClient.isLiveBackend() && res.success) await refresh();
+      return res;
+    },
+    [refresh]
+  );
+
+  const unblockIp = useCallback(
+    async (ip: string): Promise<ActionResult> => {
+      const res = await apiClient.unblockIp(ip);
+      if (apiClient.isLiveBackend() && res.success) await refresh();
+      return res;
+    },
+    [refresh]
+  );
+
+  const revokeDevice = useCallback(
+    async (deviceId: string): Promise<ActionResult> => {
+      let stepUpTok: string | undefined;
+      if (sessionInfo?.require_auth) {
+        const tok = await requestStepUp({
+          title: `Revoke Device ${deviceId}`,
+          description: 'Revoking a paired operator device requires step-up authentication.',
+        });
+        if (!tok) return { success: false, message: 'Device revocation cancelled.' };
+        stepUpTok = tok;
+      }
+      const res = await apiClient.revokeDevice(deviceId, stepUpTok);
+      if (apiClient.isLiveBackend() && res.success) await refresh();
+      return res;
+    },
+    [refresh, requestStepUp, sessionInfo]
+  );
+
+  const savePlatformSettings = useCallback(
+    async (updates: Record<string, any>): Promise<ActionResult> => {
+      const sensitiveFalse = ['step_up_auth_required', 'redaction_enabled', 'webhook_signature_verification'].some(
+        (k) => k in updates && updates[k] === false && platformSettings[k] !== false
+      );
+      let stepUpTok: string | undefined;
+      if (apiClient.isLiveBackend() && sensitiveFalse) {
+        const tok = await requestStepUp({
+          title: 'Confirm Security Policy Change',
+          description: 'Lowering redaction, webhook HMAC, or step-up requirements needs step-up verification.',
+        });
+        if (!tok) return { success: false, message: 'Settings update cancelled.' };
+        stepUpTok = tok;
+      }
+      const res = await apiClient.updateSettings(updates, stepUpTok);
+      if (res.success && apiClient.isLiveBackend()) {
+        await refresh();
+      }
+      return res;
+    },
+    [platformSettings, refresh, requestStepUp]
+  );
+
+  const subscribeWebPush = useCallback(async (): Promise<ActionResult> => {
+    return apiClient.subscribeWebPush();
+  }, []);
+
   const verifyAuditChain = useCallback(async (): Promise<ActionResult> => {
     if (!apiClient.isLiveBackend()) return { success: true, message: 'Audit chain verified (demo data)' };
     const res = await apiClient.verifyAuditChain();
     if (!res) return { success: false, message: 'Audit verification unavailable' };
-    setAuditChain({ verified: res.valid, rows: res.records_checked });
+    setAuditChain({ verified: res.valid, rows: res.records_checked, headSignature: res.head_signature });
     return res.valid
-      ? { success: true, message: `Audit chain verified: ${res.records_checked} SHA-256 linked blocks intact` }
+      ? { success: true, message: `Audit chain verified: ${res.records_checked} SHA-256 + HMAC signed blocks intact` }
       : { success: false, message: 'Audit chain verification FAILED: tampering detected' };
   }, []);
 
@@ -541,6 +747,9 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           });
           return;
         }
+        if (runRes.incident_id) {
+          setLastScenarioIncidentId(runRes.incident_id);
+        }
         const t0 = Date.now();
         const stamp = () => `[${((Date.now() - t0) / 1000).toFixed(1)}s]`;
         setActiveScenarioRun({
@@ -552,7 +761,6 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           log_output: [`${stamp()} ${targetScenario.name} triggered (run ${runId})`],
         });
 
-        // Follow the real incident the agents opened until it resolves or waits on a human
         let finalStep = 'Scenario triggered; follow the live incident timeline.';
         let lastKey = '';
         for (let i = 0; runRes.incident_id && i < 40; i++) {
@@ -601,8 +809,12 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             : prev
         );
         await refresh();
-        if (runRes.incident_id) setSelectedIncidentId(runRes.incident_id);
+        if (runRes.incident_id) {
+          setSelectedIncidentId(runRes.incident_id);
+        }
       } else {
+        const fallbackIncId = scenarioId === 'S6' ? 'DEMO-INC-2026-0841' : 'DEMO-INC-2026-0842';
+        setLastScenarioIncidentId(fallbackIncId);
         setActiveScenarioRun({
           scenario_id: scenarioId,
           run_id: runId,
@@ -612,7 +824,6 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           log_output: [`[0.0s] Initializing scenario ${scenarioId}: ${targetScenario.name}`],
         });
 
-        // Offline walkthrough steps (no backend to observe)
         const steps = [
           { progress: 20, status: 'injecting' as const, step: 'Injecting synthetic fault into ShopLite container network...', log: `[1.2s] Injected payload: ${targetScenario.simulated_payload_info}` },
           { progress: 45, status: 'detecting' as const, step: 'Sentinel anomaly monitor triggered: Alert dispatched to Orchestrator', log: '[3.4s] Sentinel captured anomalous metric & logged telemetry event' },
@@ -621,7 +832,7 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           { progress: 100, status: 'completed' as const, step: 'Scenario successfully executed! Incident verified and resolved.', log: `[12.0s] Scenario ${scenarioId} completed successfully. Audit record sealed.` },
         ];
         for (const s of steps) {
-          await sleep(1400);
+          await sleep(800);
           setActiveScenarioRun((prev) =>
             prev ? { ...prev, status: s.status, current_step: s.step, progress_percent: s.progress, log_output: [...prev.log_output, s.log] } : null
           );
@@ -647,26 +858,39 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     [scenarios, refresh]
   );
 
-  const resetEnvironment = useCallback(async () => {
-    await apiClient.resetEnvironment();
+  const resetEnvironment = useCallback(async (): Promise<ActionResult> => {
+    let stepUpTok: string | undefined;
+    if (apiClient.isLiveBackend() && sessionInfo?.require_auth && (autonomyState === 'Paused' || !isDemoMode)) {
+      const tok = await requestStepUp({
+        title: 'Confirm Environment Reset',
+        description: 'Resetting blocklists or kill-switch state in production requires step-up authentication.',
+      });
+      if (!tok) return { success: false, message: 'Reset cancelled.' };
+      stepUpTok = tok;
+    }
+    const res = await apiClient.resetEnvironment(stepUpTok);
+    if (!res.success) return res;
     setActiveScenarioRun(null);
     if (apiClient.isLiveBackend()) {
       await refresh();
-      return;
+      return res;
     }
     setIncidents(INITIAL_INCIDENTS);
     setApprovals(INITIAL_APPROVALS);
     setServices(INITIAL_SERVICES);
     setDeployments(INITIAL_DEPLOYMENTS);
     setAgents(INITIAL_AGENTS);
-  }, [refresh]);
+    return res;
+  }, [autonomyState, isDemoMode, refresh, requestStepUp, sessionInfo]);
 
   const markNotificationRead = useCallback((id: string) => {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    void apiClient.markNotificationsRead(id);
   }, []);
 
   const clearNotifications = useCallback(() => {
-    setNotifications([]);
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    void apiClient.markNotificationsRead();
   }, []);
 
   return (
@@ -690,6 +914,15 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         scenarios,
         securityReports,
         notifications,
+        devices,
+        blockedIps,
+        collectors,
+        platformSettings,
+        isHydrating,
+        loadError,
+        sessionInfo,
+        openAuthModal,
+        requestStepUp,
         autonomyState,
         toggleAutonomy,
         environment,
@@ -701,12 +934,23 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         pendingActionId,
         approveAction,
         rejectAction,
+        reinvestigateIncident,
         activeScenarioRun,
+        lastScenarioIncidentId,
         runScenario,
         resetEnvironment,
         rollbackDeployment,
         restartService,
         takeSnapshot,
+        verifySnapshot,
+        restoreSnapshot,
+        runIntegrityCheck,
+        runMigrationGuard,
+        blockIp,
+        unblockIp,
+        revokeDevice,
+        savePlatformSettings,
+        subscribeWebPush,
         verifyAuditChain,
         refresh,
         markNotificationRead,
@@ -714,6 +958,40 @@ export const AlexiaProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }}
     >
       {children}
+
+      <AuthModal
+        isOpen={loginModalOpen}
+        mode="login"
+        isDemoMode={isDemoMode}
+        sessionInfo={sessionInfo}
+        onClose={() => setLoginModalOpen(false)}
+        onLoginSuccess={() => {
+          setLoginModalOpen(false);
+          void refresh();
+        }}
+      />
+
+      <AuthModal
+        isOpen={Boolean(stepUpPrompt)}
+        mode="step-up"
+        title={stepUpPrompt?.title}
+        description={stepUpPrompt?.description}
+        actionId={stepUpPrompt?.actionId}
+        isDemoMode={isDemoMode}
+        sessionInfo={sessionInfo}
+        onClose={() => {
+          if (stepUpPrompt) {
+            stepUpPrompt.resolve(null);
+            setStepUpPrompt(null);
+          }
+        }}
+        onStepUpVerified={(tok) => {
+          if (stepUpPrompt) {
+            stepUpPrompt.resolve(tok);
+            setStepUpPrompt(null);
+          }
+        }}
+      />
     </AlexiaContext.Provider>
   );
 };

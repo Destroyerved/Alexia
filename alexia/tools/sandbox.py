@@ -21,6 +21,7 @@ import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
 from alexia.tools.diffutil import apply_diff_to_dir
+from alexia.tools.sandbox_policy import safe_environment, validate_generated_test, validate_patch
 
 logger = logging.getLogger("alexia.sandbox")
 
@@ -66,14 +67,16 @@ def default_workspace() -> str:
 
 
 def _test_command(test_file_rel: str) -> List[str]:
+    # Frozen AlexiaServer.exe receives sys.argv directly (Python does not consume -B on frozen exes),
+    # so pass --sandbox-test as argv[1] and rely on PYTHONDONTWRITEBYTECODE=1 in safe_environment.
     if getattr(sys, "frozen", False):
         return [sys.executable, "--sandbox-test", test_file_rel]
     try:
         import pytest  # noqa: F401
 
-        return [sys.executable, "-m", "pytest", test_file_rel, "-q", "-p", "no:cacheprovider", "--tb=short"]
+        return [sys.executable, "-B", "-m", "pytest", test_file_rel, "-q", "-p", "no:cacheprovider", "--tb=short"]
     except ImportError:
-        return [sys.executable, "-m", "alexia.tools.mini_pytest", test_file_rel]
+        return [sys.executable, "-B", "-m", "alexia.tools.mini_pytest", test_file_rel]
 
 
 class SandboxRunner:
@@ -82,14 +85,21 @@ class SandboxRunner:
     def __init__(self, workspace_path: Optional[str] = None):
         self.workspace_path = workspace_path or default_workspace()
 
-    def run_command(self, cmd: List[str], cwd: str, timeout: int = 60) -> Tuple[int, str, str]:
-        """Execute a command in the sandbox directory with the sandbox on PYTHONPATH."""
-        env = dict(os.environ)
+    def _run_command(self, cmd: List[str], cwd: str, timeout: int = 60) -> Tuple[int, str, str]:
+        """Run only the sandbox's own Python test command, never an arbitrary shell."""
+        if not cmd or os.path.abspath(cmd[0]) != os.path.abspath(sys.executable):
+            raise ValueError("sandbox may only execute its own Python interpreter")
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        env["PYTHONPATH"] = os.pathsep.join([cwd, repo_root])
-        env["DATABASE_URL"] = "sqlite:///data/shoplite.db"
-        env.setdefault("DEMO_VULN", "1")
-        env["PYTHONIOENCODING"] = "utf-8"
+        env = safe_environment(
+            os.environ,
+            {
+                "PYTHONPATH": os.pathsep.join([cwd, repo_root]),
+                "DATABASE_URL": "sqlite:///data/shoplite.db",
+                "DEMO_VULN": os.environ.get("DEMO_VULN", "1"),
+                "PYTHONIOENCODING": "utf-8",
+                "PYTHONDONTWRITEBYTECODE": "1",
+            },
+        )
         try:
             res = subprocess.run(
                 cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env,
@@ -113,7 +123,7 @@ class SandboxRunner:
         return temp_dir
 
     def _run_test(self, temp_dir: str, test_file_rel: str) -> Tuple[int, str]:
-        code, out, err = self.run_command(_test_command(test_file_rel), cwd=temp_dir, timeout=TEST_TIMEOUT_SECONDS)
+        code, out, err = self._run_command(_test_command(test_file_rel), cwd=temp_dir, timeout=TEST_TIMEOUT_SECONDS)
         return code, f"{out}\n{err}".strip()
 
     def read_workspace_file(self, rel_path: str, base_diff: str = "") -> str:
@@ -130,6 +140,25 @@ class SandboxRunner:
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    @staticmethod
+    def _policy_failure(reason: str, failing_test_code: str, patch_diff: str) -> Dict[str, Any]:
+        """Return an honest non-success result when model output violates policy."""
+        return {
+            "success": False,
+            "failed_before": False,
+            "passed_after": False,
+            "patch_applied": False,
+            "patch_message": reason,
+            "base_note": "",
+            "before_log": "",
+            "after_log": f"Sandbox policy rejected the generated code: {reason}",
+            "failing_test_code": failing_test_code,
+            "patch_diff": patch_diff,
+            "test_runner": "pytest" if "pytest" in _test_command("x") else "alexia mini-runner",
+            "summary": f"Not proven: sandbox policy rejected the generated code ({reason}).",
+            "policy_violation": reason,
+        }
+
     def verify_patch(
         self,
         failing_test_code: str,
@@ -138,6 +167,17 @@ class SandboxRunner:
         test_file_rel: str = "tests/test_regression.py",
     ) -> Dict[str, Any]:
         """Run the Red -> Green cycle and report what actually happened."""
+        from alexia.tools.sandbox_policy import validate_patched_source
+
+        test_ok, test_reason = validate_generated_test(failing_test_code)
+        if not test_ok:
+            logger.warning("Builder sandbox rejected generated test: %s", test_reason)
+            return self._policy_failure(test_reason, failing_test_code, patch_diff)
+        patch_ok, patch_reason = validate_patch(patch_diff)
+        if not patch_ok:
+            logger.warning("Builder sandbox rejected generated patch: %s", patch_reason)
+            return self._policy_failure(patch_reason, failing_test_code, patch_diff)
+
         temp_dir = self._prepare()
         try:
             base_note = ""
@@ -154,8 +194,17 @@ class SandboxRunner:
             code_before, before_log = self._run_test(temp_dir, test_file_rel)
             failed_before = code_before != 0
 
-            # Phase 2: apply the generated patch
-            patch_applied, patch_message, _ = apply_diff_to_dir(temp_dir, patch_diff)
+            # Phase 2: apply the generated patch + validate full post-patch AST
+            patch_applied, patch_message, modified_files = apply_diff_to_dir(temp_dir, patch_diff)
+            if patch_applied:
+                for mod_rel in modified_files:
+                    if mod_rel.endswith(".py"):
+                        mod_abs = os.path.join(temp_dir, mod_rel)
+                        if os.path.exists(mod_abs):
+                            with open(mod_abs, "r", encoding="utf-8") as mf:
+                                ast_ok, ast_reason = validate_patched_source(mf.read(), rel_path=mod_rel)
+                            if not ast_ok:
+                                return self._policy_failure(ast_reason, failing_test_code, patch_diff)
 
             # Phase 3: GREEN - the same test must pass against the patched code
             if patch_applied:
@@ -193,6 +242,10 @@ class SandboxRunner:
 
     def smoke_test(self, deploy_diff: str = "") -> Tuple[bool, str]:
         """Health-gate probe: apply the candidate deploy to a copy of the app and hit key endpoints."""
+        if deploy_diff:
+            patch_ok, patch_reason = validate_patch(deploy_diff)
+            if not patch_ok:
+                return False, f"Sandbox policy rejected the deploy diff: {patch_reason}"
         temp_dir = self._prepare()
         try:
             if deploy_diff:

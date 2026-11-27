@@ -5,40 +5,46 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 const BACKEND_URL = process.env.VITE_BACKEND_PROXY || 'http://localhost:8080';
 
-// https://vite.dev/config/
 export default defineConfig({
   plugins: [
-    // Tailwind CSS v4 — Vite-native plugin
     tailwindcss(),
-
-    // React plugin (fast refresh, JSX transform)
     react(),
-
-    // PWA plugin — enables offline caching and standalone installable app
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg'],
+      includeAssets: ['favicon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'push-sw.js'],
       manifest: {
         name: 'Alexia — Autonomous DevSecOps Guardian',
         short_name: 'Alexia',
-        description: 'Autonomous DevSecOps Guardian Command Center with 5 AI agents, human-in-the-loop approvals, and audit trail',
-        theme_color: '#0B1120',
-        background_color: '#0B1120',
+        description: 'Autonomous DevSecOps Guardian Command Center with 5 AI agents, human-in-the-loop approvals, and cryptographic audit trail',
+        theme_color: '#080B08',
+        background_color: '#080B08',
         display: 'standalone',
         orientation: 'any',
         icons: [
           {
+            src: 'pwa-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: 'pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any maskable',
+          },
+          {
             src: 'favicon.svg',
             sizes: 'any',
             type: 'image/svg+xml',
-            purpose: 'any maskable',
+            purpose: 'any',
           },
         ],
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        importScripts: ['push-sw.js'],
         navigateFallback: 'index.html',
-        // Keep API, SSE and FastAPI docs navigations on the network instead of the cached app shell
         navigateFallbackDenylist: [/^\/(api|v1|remote|stream|webhook|docs|redoc|openapi\.json)/],
       },
     }),

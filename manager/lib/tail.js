@@ -46,11 +46,16 @@ function follow(file, onLines, { initialBytes = 128 * 1024, intervalMs = 600 } =
   try {
     const { size } = fs.statSync(file);
     offset = Math.max(0, size - initialBytes);
-    if (offset > 0) {
+    const toRead = Math.min(4096, size - offset);
+    if (offset > 0 && toRead > 0) {
       const fd = fs.openSync(file, 'r');
-      const probe = Buffer.alloc(Math.min(4096, size - offset));
-      fs.readSync(fd, probe, 0, probe.length, offset);
-      fs.closeSync(fd);
+      let probe;
+      try {
+        probe = Buffer.alloc(toRead);
+        fs.readSync(fd, probe, 0, probe.length, offset);
+      } finally {
+        fs.closeSync(fd);
+      }
       const newline = probe.indexOf(10);
       if (newline >= 0) offset += newline + 1;
     }

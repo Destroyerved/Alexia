@@ -52,7 +52,7 @@ if ($ok) {
 
 # Give a platform that has just started a moment to open its port.
 $proc = Get-CimInstance Win32_Process | Where-Object {
-  ($_.Name -eq "AlexiaServer.exe") -or
+  ($_.Name -eq "AlexiaServer.exe" -and $_.ExecutablePath -like "$Root\*") -or
   ($_.Name -eq "python.exe" -and $_.CommandLine -like "*$Root\app*")
 }
 $young = $proc | Where-Object { ((Get-Date) - $_.CreationDate).TotalSeconds -lt 90 }

@@ -7,7 +7,7 @@
 [![Nebius Token Factory](https://img.shields.io/badge/Nebius-Token%20Factory-00E599)](https://tokenfactory.nebius.com)
 [![Tavily Search](https://img.shields.io/badge/Tavily-Grounded%20Search-4f46e5)](https://tavily.com)
 [![Audit Chain](https://img.shields.io/badge/Audit%20Chain-100%25%20Verified%20%E2%9C%93-10b981)](#-tamper-evident-cryptographic-audit-ledger)
-[![Tests](https://img.shields.io/badge/Tests-32%2F32%20Passing-brightgreen)](#-run-unit-and-integration-tests)
+[![Tests](https://img.shields.io/badge/Tests-Backend%20%2B%20Frontend%20Passing-brightgreen)](#4-run-unit-integration--full-workflow-tests)
 
 > **An autonomous DevSecOps guardian that writes, deploys, heals and protects your server — and never loses your data.**
 >
@@ -40,6 +40,16 @@ Small teams lack the time and expertise to write these under pressure.
 | **Healer** | Docker events, health polls, logs | Detects crashes and resource failures; triages with Nano; diagnoses with Super + Tavily; restarts and verifies; writes runbook entries. |
 | **Sentinel** (Security) | Diffs, access logs, query telemetry | Scans commits for leaked secrets; detects brute force and SQL injection; blocks attacker IPs; hashes forensic evidence; drafts compliance reports. |
 | **Integrity** | Database, volumes, migrations | Takes SHA-256 verified snapshots before any mutation; guards migrations on throwaway DB copies; assesses exposed records count. |
+
+### Completion Contract
+
+The project's non-negotiable checklist is tracked in
+[docs/COMPLETION.md](docs/COMPLETION.md): five independent agents behind a
+validated interface registry, a static-policy Builder sandbox, an audited
+Deployer rollback, authorization-gated Healer actions, Sentinel detection,
+Integrity snapshot/audit verification, durable SQLite state, production-safe
+Docker assets, automated tests, and installation/architecture documentation.
+Each row links the requirement to the test that proves it.
 
 ### The Builder Proof Is Real
 Builder writes its regression test and patch against ShopLite's actual source (`target-app/app/main.py`, as deployed),
@@ -244,6 +254,7 @@ For instant zero-configuration setup and execution on Windows, double-click **`A
 
 ### Prerequisites (Manual / Developer Setup)
 - Python 3.11+
+- Node.js 20+ (React 19 / Vite dashboard)
 - Docker & Docker Compose (optional, for containerized deployment)
 
 ### 1. Clone & Configure
@@ -296,12 +307,19 @@ Launches the full interactive terminal console with live scenario execution, Tie
 ### 4. Run Unit, Integration & Full Workflow Tests
 ```bash
 # Run the complete end-to-end full workflow test suite
-PYTHONPATH=. pytest tests/test_full_workflow.py -v
+python -m pytest tests/test_full_workflow.py -v
 
 # Run the complete backend + target-app suite (unit, integration, platform & regression tests)
-PYTHONPATH=. pytest tests/ target-app/tests/ -v
+python -m pytest tests/ target-app/tests/ -q
+
+# Run the frontend Vitest suite
+npx vitest run
 ```
 Tests run against a throwaway `ALEXIA_DATA_DIR` (see `tests/conftest.py`), never your live `data/alexia.db`.
+The completion contract test (`tests/test_completion_contract.py`) proves the
+checklist in [docs/COMPLETION.md](docs/COMPLETION.md), including SQLite restart
+persistence, sandbox policy rejection, rollback audit records, and Docker asset
+validation.
 
 ### 5. Run the Evaluation Suite (3x Consecutive Pass Rate)
 ```bash
@@ -318,10 +336,20 @@ Drives the running server over real HTTP and Server-Sent Events: every `/api/v1/
 
 ### 6. Run the Full Stack with Docker Compose
 ```bash
-docker compose up --build
+cp .env.example .env
+# Set real values for ALEXIA_SECRET_KEY and GITHUB_WEBHOOK_SECRET.
+docker compose up --build -d
+docker compose ps          # wait until alexia-core and shoplite-api are healthy
+curl -fsS http://localhost:8080/health
 ```
 Open the interactive Guardian Dashboard and Mobile PWA at:
 👉 **`http://localhost:8080`**
+
+Both services have healthchecks; Alexia starts only after ShopLite reports
+healthy. ShopLite and Alexia share the `./data` volume, and SQLite is the only
+database (no PostgreSQL container is required). In production the Compose file
+sets `ALEXIA_ENV=production`, enables collectors, disables simulated health,
+and requires signed GitHub webhooks.
 
 - **Judge Demo Credentials:**
   - Username: `demo`
@@ -348,6 +376,7 @@ Inject realistic production chaos against the running target:
 - [CONTEXT.md](CONTEXT.md) — System memory, agent roles, and architectural reference context.
 - [Full Workflow Test Suite](tests/test_full_workflow.py) — Comprehensive end-to-end workflow verification tests.
 - [Architecture & Sequence Diagrams](docs/architecture.md) — Multi-agent architecture, event loop, and safety tiers.
+- [Completion Contract](docs/COMPLETION.md) — Requirement-to-code-to-test matrix and live Docker validation steps.
 - [Nebius Token Factory & Nemotron Feedback](docs/feedback.md) — Actionable feedback on Token Factory DX, Nemotron model performance, and latency (Rule R13 submission).
 - [Alexia PRD](Alexia_PRD.md) — Full Product Requirements Document with specifications and scenario definitions.
 - [Third-Party Licenses](THIRD_PARTY.md) — Rule R15 compliance declaring all permissive open-source dependencies.

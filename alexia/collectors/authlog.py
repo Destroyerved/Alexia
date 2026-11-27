@@ -20,12 +20,30 @@ logger = logging.getLogger("alexia.collector.auth")
 class AuthLogCollector:
     """Monitors authentication attempts and triggers brute force alerts."""
 
-    def __init__(self, failure_threshold: int = 10, window_seconds: int = 60, service: str = "shoplite-api"):
+    def __init__(
+        self,
+        failure_threshold: int = 10,
+        window_seconds: int = 60,
+        service: str = "shoplite-api",
+        max_tracked_ips: int = 2048,
+    ):
         self.failure_threshold = failure_threshold
         self.window_seconds = window_seconds
         self.service = service
+        self.max_tracked_ips = max_tracked_ips
         self.bus = get_event_bus()
         self._failures_by_ip: Dict[str, List[float]] = {}
+
+    def _prune_stale(self, now: float) -> None:
+        expired_ips = [
+            k for k, ts_list in self._failures_by_ip.items()
+            if not ts_list or (now - ts_list[-1]) > self.window_seconds
+        ]
+        for k in expired_ips:
+            self._failures_by_ip.pop(k, None)
+        if len(self._failures_by_ip) >= self.max_tracked_ips:
+            oldest_ip = min(self._failures_by_ip.keys(), key=lambda k: self._failures_by_ip[k][-1])
+            self._failures_by_ip.pop(oldest_ip, None)
 
     async def record_login_attempt(self, ip: str, success: bool, username: str = "") -> Optional[Event]:
         """Record an authentication event and evaluate brute-force criteria."""
@@ -33,6 +51,8 @@ class AuthLogCollector:
             return None
 
         now = time.time()
+        if len(self._failures_by_ip) >= self.max_tracked_ips:
+            self._prune_stale(now)
         if ip not in self._failures_by_ip:
             self._failures_by_ip[ip] = []
 
@@ -58,7 +78,17 @@ class AuthLogCollector:
             )
             await self.bus.publish(event)
             # Reset after alert to avoid spamming
-            self._failures_by_ip[ip] = []
+            self._failures_by_ip.pop(ip, None)
             return event
 
         return None
+
+
+_global_auth_collector: Optional[AuthLogCollector] = None
+
+
+def get_auth_collector() -> AuthLogCollector:
+    global _global_auth_collector
+    if _global_auth_collector is None:
+        _global_auth_collector = AuthLogCollector()
+    return _global_auth_collector

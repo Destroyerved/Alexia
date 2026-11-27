@@ -73,3 +73,13 @@ class DBStatsCollector:
             return event
 
         return None
+
+
+_global_db_collector: Optional[DBStatsCollector] = None
+
+
+def get_dbstats_collector() -> DBStatsCollector:
+    global _global_db_collector
+    if _global_db_collector is None:
+        _global_db_collector = DBStatsCollector()
+    return _global_db_collector

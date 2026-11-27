@@ -1,18 +1,18 @@
 """Approval lifecycle manager for Tier-1 actions and remote approvals.
 
 Implements FR-C7, FR-M5, FR-M8:
-- Generates single-use HMAC-SHA256 signed approval tokens bound to action_id and device/user.
-- Enforces 5-minute expiration window.
-- Manages approval states in SQLite.
+- Generates single-use HMAC-SHA256 signed approval tokens bound to action_id, integer timestamp, and device_id.
+- Enforces 5-minute expiration window and constant-time HMAC comparison.
+- Manages approval states in SQLite without leaking raw secret tokens in unauthenticated listing calls.
 - Integrates with AuditLog to preserve cryptographic proof of approvals.
 """
 
 from __future__ import annotations
+
 import hashlib
 import hmac
 import json
 import logging
-import os
 import sqlite3
 import threading
 import time
@@ -20,58 +20,31 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from alexia.core.audit import get_audit_log
-from alexia.core.schemas import Action
+from alexia.core.config import secret_key
 from alexia.core.paths import resolve_db_path
+from alexia.core.schemas import Action
+from alexia.core.sqlite import connect as sqlite_connect, resolve_openable_path
 
 logger = logging.getLogger("alexia.approvals")
-
-DEFAULT_SECRET_KEY = "alexia_demo_secret_key_change_in_prod"
 
 
 class ApprovalManager:
     """Manages pending Tier-1 actions and cryptographic single-use approval tokens."""
 
     def __init__(self, db_path: str = "data/alexia.db"):
-        # source_db_path is what singletons compare against; db_path may fall back to *.sqlite
-        self.db_path = self.source_db_path = resolve_db_path(db_path)
-        self.secret_key = (os.getenv("ALEXIA_SECRET_KEY") or os.getenv("ALEXIA_JWT_SECRET") or DEFAULT_SECRET_KEY).encode("utf-8")
+        self.source_db_path = resolve_db_path(db_path)
+        self.db_path = resolve_openable_path(self.source_db_path)
         self.token_ttl_seconds = 300  # 5 minutes
         self.audit = get_audit_log(db_path)
         self._lock = threading.Lock()
         self._init_db()
 
-    def _get_connection(self) -> sqlite3.Connection:
-        try:
-            conn = sqlite3.connect(self.db_path, timeout=10)
-        except sqlite3.OperationalError:
-            self.db_path = f"{self.db_path}.sqlite"
-            conn = sqlite3.connect(self.db_path, timeout=10)
-        conn.row_factory = sqlite3.Row
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS pending_approvals (
-                action_id TEXT PRIMARY KEY,
-                incident_id TEXT,
-                action_name TEXT NOT NULL,
-                target TEXT NOT NULL,
-                params_json TEXT NOT NULL,
-                reason TEXT NOT NULL,
-                expected_outcome TEXT,
-                rollback TEXT,
-                requested_by TEXT NOT NULL,
-                snapshot_id TEXT,
-                token TEXT NOT NULL,
-                created_at REAL NOT NULL,
-                expires_at REAL NOT NULL,
-                status TEXT NOT NULL,
-                decided_by TEXT,
-                decided_at REAL,
-                step_up_method TEXT
-            )
-            """
-        )
-        return conn
+    @property
+    def secret_key(self) -> bytes:
+        return secret_key().encode("utf-8")
 
+    def _get_connection(self) -> sqlite3.Connection:
+        return sqlite_connect(self.db_path)
 
     def _init_db(self) -> None:
         with self._lock, self._get_connection() as conn:
@@ -88,6 +61,7 @@ class ApprovalManager:
                     rollback TEXT,
                     requested_by TEXT NOT NULL,
                     snapshot_id TEXT,
+                    device_id TEXT NOT NULL DEFAULT 'web_dashboard',
                     token TEXT NOT NULL,
                     created_at REAL NOT NULL,
                     expires_at REAL NOT NULL,
@@ -98,17 +72,33 @@ class ApprovalManager:
                 )
                 """
             )
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(pending_approvals)").fetchall()}
+            if "device_id" not in cols:
+                conn.execute("ALTER TABLE pending_approvals ADD COLUMN device_id TEXT NOT NULL DEFAULT 'web_dashboard'")
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_approvals_status ON pending_approvals (status)"
             )
             conn.commit()
 
-    def generate_token(self, action_id: str, device_id: str = "web_dashboard") -> str:
-        """Create HMAC-SHA256 single-use token bound to action_id, timestamp, and device."""
-        now = time.time()
-        payload = f"{action_id}:{device_id}:{now}".encode("utf-8")
+    def generate_token(self, action_id: str, device_id: str = "web_dashboard", issued_at: Optional[int] = None) -> str:
+        """Create verifiable HMAC-SHA256 single-use token bound to action_id, integer timestamp, and device_id."""
+        ts = int(issued_at if issued_at is not None else time.time())
+        payload = f"{action_id}:{device_id}:{ts}".encode("utf-8")
         signature = hmac.new(self.secret_key, payload, hashlib.sha256).hexdigest()
-        return f"{action_id}.{int(now)}.{signature[:24]}"
+        return f"{action_id}.{ts}.{signature}"
+
+    def verify_action_token(self, action_id: str, token: str, device_id: str = "web_dashboard") -> bool:
+        """Recompute and constant-time verify an approval token."""
+        if not token:
+            return False
+        parts = token.split(".")
+        if len(parts) != 3:
+            return False
+        tok_action_id, ts_str, sig = parts
+        if tok_action_id != action_id or not ts_str.isdigit():
+            return False
+        expected = self.generate_token(action_id, device_id=device_id, issued_at=int(ts_str))
+        return hmac.compare_digest(token, expected)
 
     def create_pending_approval(
         self,
@@ -120,7 +110,7 @@ class ApprovalManager:
         """Queue a Tier-1 action for human approval and return token."""
         now = time.time()
         expires_at = now + self.token_ttl_seconds
-        token = self.generate_token(action.id, device_id)
+        token = self.generate_token(action.id, device_id=device_id, issued_at=int(now))
 
         with self._lock, self._get_connection() as conn:
             conn.execute(
@@ -128,8 +118,8 @@ class ApprovalManager:
                 INSERT OR REPLACE INTO pending_approvals (
                     action_id, incident_id, action_name, target, params_json,
                     reason, expected_outcome, rollback, requested_by,
-                    snapshot_id, token, created_at, expires_at, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                    snapshot_id, device_id, token, created_at, expires_at, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
                 """,
                 (
                     action.id,
@@ -142,6 +132,7 @@ class ApprovalManager:
                     action.rollback,
                     action.requested_by,
                     snapshot_id,
+                    device_id,
                     token,
                     now,
                     expires_at,
@@ -196,9 +187,10 @@ class ApprovalManager:
                 conn.commit()
                 return False, "Approval token has expired (5-minute TTL exceeded).", None
 
-            # Token validation if provided
-            if provided_token and provided_token != row["token"]:
-                return False, "Invalid approval token signature.", None
+            if provided_token is not None and provided_token != "":
+                stored_token = str(row["token"] or "")
+                if not hmac.compare_digest(provided_token, stored_token):
+                    return False, "Invalid approval token signature.", None
 
             cur.execute(
                 """
@@ -232,7 +224,7 @@ class ApprovalManager:
         return True, f"Action {action_id} successfully {decision_lower}.", action_data
 
     @staticmethod
-    def _format_approval_row(r: sqlite3.Row, now: float) -> Dict[str, Any]:
+    def _format_approval_row(r: sqlite3.Row, now: float, include_token: bool = False) -> Dict[str, Any]:
         action_name = r["action_name"]
         tier = r["tier"] if "tier" in r.keys() else 1
         tier_label = "Tier 1 — Requires Human Approval" if tier == 1 else (
@@ -245,8 +237,7 @@ class ApprovalManager:
             if r["decided_at"]
             else None
         )
-        return {
-            # Frontend ApprovalRequest fields
+        payload: Dict[str, Any] = {
             "id": r["action_id"],
             "action_id": r["action_id"],
             "incident_id": r["incident_id"] or "inc_s6_sqli_breach",
@@ -254,29 +245,29 @@ class ApprovalManager:
             "action_tier": f"tier_{tier}",
             "action_tier_label": tier_label,
             "affected_service": r["target"] or "shoplite-api",
-            "risk_level": "high" if action_name in ("rotate_secret", "restore_db_snapshot", "quarantine_container") else "medium",
+            "risk_level": "high" if action_name in ("rotate_secret", "restore_snapshot", "restore_db_snapshot", "isolate_container_network", "quarantine_container") else "medium",
             "reason": r["reason"] or f"Execute {action_name} on {r['target']}",
             "expected_outcome": r["expected_outcome"] or f"Safely execute {action_name} with pre-action snapshot protection",
             "rollback_plan": r["rollback"] or f"Restore pre-action snapshot {r['snapshot_id'] or 'snap_latest'}",
             "requesting_agent": agent_label,
-            # A pending row past its 5-minute TTL can no longer be decided; report it as expired
             "status": "expired" if r["status"] == "pending" and r["expires_at"] <= now else r["status"],
             "created_at": datetime.fromtimestamp(r["created_at"], tz=timezone.utc).isoformat(),
             "expires_at": datetime.fromtimestamp(r["expires_at"], tz=timezone.utc).isoformat(),
             "decided_by": r["decided_by"],
             "decided_at": decided_at_iso,
-            # Backend existing fields
             "action": action_name,
             "target": r["target"],
             "params": json.loads(r["params_json"]),
             "rollback": r["rollback"],
             "requested_by": r["requested_by"],
             "snapshot_id": r["snapshot_id"],
-            "token": r["token"],
             "seconds_remaining": max(0, int(r["expires_at"] - now)),
         }
+        if include_token:
+            payload["token"] = r["token"]
+        return payload
 
-    def list_pending(self) -> List[Dict[str, Any]]:
+    def list_pending(self, include_token: bool = False) -> List[Dict[str, Any]]:
         """Return all currently active pending approval requests."""
         now = time.time()
         with self._lock, self._get_connection() as conn:
@@ -290,9 +281,9 @@ class ApprovalManager:
                 (now,),
             )
             rows = cur.fetchall()
-            return [self._format_approval_row(r, now) for r in rows]
+            return [self._format_approval_row(r, now, include_token=include_token) for r in rows]
 
-    def list_all(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def list_all(self, limit: int = 50, include_token: bool = False) -> List[Dict[str, Any]]:
         """Return all approval requests (pending, approved, rejected, expired)."""
         now = time.time()
         with self._lock, self._get_connection() as conn:
@@ -306,7 +297,7 @@ class ApprovalManager:
                 (limit,),
             )
             rows = cur.fetchall()
-            return [self._format_approval_row(r, now) for r in rows]
+            return [self._format_approval_row(r, now, include_token=include_token) for r in rows]
 
 
 _global_approval_mgr: Optional[ApprovalManager] = None
@@ -314,7 +305,13 @@ _global_approval_mgr: Optional[ApprovalManager] = None
 
 def get_approval_manager(db_path: str = "data/alexia.db") -> ApprovalManager:
     """Retrieve or initialize global ApprovalManager."""
+    from alexia.core.sqlite import has_table
+
     global _global_approval_mgr
-    if _global_approval_mgr is None or _global_approval_mgr.source_db_path != resolve_db_path(db_path):
+    if (
+        _global_approval_mgr is None
+        or _global_approval_mgr.source_db_path != resolve_db_path(db_path)
+        or not has_table(_global_approval_mgr.db_path, "pending_approvals")
+    ):
         _global_approval_mgr = ApprovalManager(db_path=db_path)
     return _global_approval_mgr

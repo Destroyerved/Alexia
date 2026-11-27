@@ -18,7 +18,7 @@ if (Test-Path $liveness) {
 Set-Content -Path (Join-Path $Root "desired-state") -Value "running" -Encoding ASCII
 
 $running = Get-CimInstance Win32_Process | Where-Object {
-  ($_.Name -eq "AlexiaServer.exe") -or
+  ($_.Name -eq "AlexiaServer.exe" -and $_.ExecutablePath -like "$Root\*") -or
   ($_.Name -eq "python.exe" -and $_.CommandLine -like "*$Root\app*")
 }
 if ($running) {

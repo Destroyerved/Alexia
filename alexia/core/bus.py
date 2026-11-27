@@ -13,10 +13,12 @@ import logging
 import os
 import sqlite3
 import threading
+from collections import deque
 from datetime import datetime, timezone
-from typing import Any, Callable, Coroutine, Dict, List, Optional, Set
+from typing import Any, Callable, Coroutine, Deque, Dict, List, Optional, Set, Tuple
 from alexia.core.schemas import Event, Incident, generate_id
 from alexia.core.paths import resolve_db_path
+from alexia.core.sqlite import connect as sqlite_connect, quick_check_connection, resolve_openable_path
 
 logger = logging.getLogger("alexia.bus")
 
@@ -25,32 +27,33 @@ class EventBus:
     """Async event bus managing event publishing, subscriber dispatch, and persistence."""
 
     def __init__(self, db_path: str = "data/alexia.db"):
-        # source_db_path is what singletons compare against; db_path may fall back to *.sqlite
-        self.db_path = self.source_db_path = resolve_db_path(db_path)
-        os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+        self.source_db_path = resolve_db_path(db_path)
+        self.db_path = resolve_openable_path(self.source_db_path)
+        os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
         self._queue: asyncio.Queue[Event] = asyncio.Queue()
         self._subscribers: Dict[str, List[Callable[[Event], Coroutine[Any, Any, None]]]] = {}
         self._sse_listeners: Set[asyncio.Queue[Dict[str, Any]]] = set()
+        self._sse_seq = 0
+        self._sse_history: Deque[Tuple[int, Dict[str, Any]]] = deque(maxlen=250)
         self._db_lock = threading.Lock()
         self._running = False
         self._worker_task: Optional[asyncio.Task] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._in_flight = 0  # published events whose subscribers have not finished yet
-        self._dispatch_tasks: Set[asyncio.Task] = set()  # keeps running handler tasks referenced
+        self._dispatch_sem: Optional[asyncio.Semaphore] = None
+        self._in_flight = 0
+        self._dispatch_tasks: Set[asyncio.Task] = set()
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
-        try:
-            conn = sqlite3.connect(self.db_path, timeout=10)
-        except sqlite3.OperationalError:
-            self.db_path = f"{self.db_path}.sqlite"
-            conn = sqlite3.connect(self.db_path, timeout=10)
-        conn.row_factory = sqlite3.Row
-        return conn
+        return sqlite_connect(self.db_path)
 
     def _init_db(self) -> None:
         with self._db_lock, self._get_connection() as conn:
-            # Events table
+            ok, detail = quick_check_connection(conn)
+            if not ok:
+                raise sqlite3.DatabaseError(
+                    f"Alexia state database {self.db_path} failed its startup integrity check: {detail}"
+                )
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS events (
@@ -60,14 +63,17 @@ class EventBus:
                     kind TEXT NOT NULL,
                     service TEXT NOT NULL,
                     severity TEXT NOT NULL,
-                    data_json TEXT NOT NULL
+                    data_json TEXT NOT NULL,
+                    processed INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
+            ev_cols = {row[1] for row in conn.execute("PRAGMA table_info(events)").fetchall()}
+            if "processed" not in ev_cols:
+                conn.execute("ALTER TABLE events ADD COLUMN processed INTEGER NOT NULL DEFAULT 1")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_events_ts ON events (ts)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_events_kind ON events (kind)")
 
-            # Incidents table
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS incidents (
@@ -94,7 +100,6 @@ class EventBus:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents (status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_incidents_updated ON incidents (updated_at)")
 
-            # Incident Transitions History (Audit & Debug)
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS incident_transitions (
@@ -116,11 +121,12 @@ class EventBus:
         """Register an async callback for event kind or wildcard ('*')."""
         if pattern not in self._subscribers:
             self._subscribers[pattern] = []
-        self._subscribers[pattern].append(callback)
+        if callback not in self._subscribers[pattern]:
+            self._subscribers[pattern].append(callback)
 
     def register_sse_listener(self) -> asyncio.Queue[Dict[str, Any]]:
         """Register an SSE consumer queue."""
-        q: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=100)
+        q: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=150)
         self._sse_listeners.add(q)
         return q
 
@@ -128,25 +134,53 @@ class EventBus:
         """Unregister an SSE consumer queue."""
         self._sse_listeners.discard(q)
 
+    def get_sse_since(self, last_event_id: int) -> List[Tuple[int, Dict[str, Any]]]:
+        """Return buffered SSE frames with sequence ID > `last_event_id`."""
+        return [(seq, msg) for seq, msg in list(self._sse_history) if seq > last_event_id]
+
     async def start(self) -> None:
         """Start the async event processing loop (rebinding if a previous event loop has gone away)."""
         loop = asyncio.get_running_loop()
-        if self._running and self._loop is loop:
+        if self._running and self._loop is loop and self._worker_task and not self._worker_task.done():
             return
-        # The singleton can outlive the loop it first ran on (an in-process app restart, or test runs);
-        # asyncio queues and tasks are tied to one loop, so start fresh on the current one.
         self._running = True
         self._loop = loop
         self._queue = asyncio.Queue()
+        self._dispatch_sem = asyncio.Semaphore(16)
         self._in_flight = 0
         self._worker_task = loop.create_task(self._process_queue())
         logger.info("Alexia EventBus started.")
+
+    async def recover_unprocessed_events(self, limit: int = 20) -> int:
+        """Re-enqueue unprocessed events interrupted by an unclean shutdown (NFR3)."""
+        with self._db_lock, self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM events WHERE processed = 0 ORDER BY ts ASC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        recovered = 0
+        for r in rows:
+            try:
+                evt = Event(
+                    id=r["id"],
+                    ts=r["ts"],
+                    source=r["source"],
+                    kind=r["kind"],
+                    service=r["service"],
+                    severity=r["severity"],
+                    data=json.loads(r["data_json"] or "{}"),
+                )
+                self._in_flight += 1
+                await self._queue.put(evt)
+                recovered += 1
+            except Exception as exc:
+                logger.warning(f"Could not recover event {r['id']}: {exc}")
+        return recovered
 
     async def stop(self) -> None:
         """Stop the event processing loop."""
         self._running = False
         task, self._worker_task = self._worker_task, None
-        # Only a task on this loop can be awaited; one from a closed loop is already dead
         if task and task.get_loop() is asyncio.get_running_loop():
             task.cancel()
             try:
@@ -160,11 +194,18 @@ class EventBus:
     # -----------------------------------------------------------------------
     async def publish(self, event: Event) -> None:
         """Publish an event to the bus and persist it immediately."""
+        # Auto-rebind if called on a new event loop (e.g. MainFrame CLI)
+        try:
+            running_loop = asyncio.get_running_loop()
+            if not self._running or self._loop is not running_loop:
+                await self.start()
+        except RuntimeError:
+            pass
+
         self._persist_event(event)
         self._in_flight += 1
         await self._queue.put(event)
 
-        # Broadcast immediately to SSE listeners for live timeline updates
         sse_payload = {
             "type": "event",
             "data": event.model_dump(),
@@ -175,8 +216,8 @@ class EventBus:
         with self._db_lock, self._get_connection() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO events (id, ts, source, kind, service, severity, data_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO events (id, ts, source, kind, service, severity, data_json, processed)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0)
                 """,
                 (
                     event.id,
@@ -185,9 +226,14 @@ class EventBus:
                     event.kind,
                     event.service,
                     event.severity,
-                    json.dumps(event.data),
+                    json.dumps(event.data, default=str),
                 ),
             )
+            conn.commit()
+
+    def _mark_event_processed(self, event_id: str) -> None:
+        with self._db_lock, self._get_connection() as conn:
+            conn.execute("UPDATE events SET processed = 1 WHERE id = ?", (event_id,))
             conn.commit()
 
     async def _process_queue(self) -> None:
@@ -196,18 +242,13 @@ class EventBus:
                 event = await self._queue.get()
                 callbacks: List[Callable[[Event], Coroutine[Any, Any, None]]] = []
 
-                # Exact kind match
                 if event.kind in self._subscribers:
                     callbacks.extend(self._subscribers[event.kind])
-                # Source match (e.g., "collector.docker")
                 if event.source in self._subscribers:
                     callbacks.extend(self._subscribers[event.source])
-                # Universal wildcard match
                 if "*" in self._subscribers:
                     callbacks.extend(self._subscribers["*"])
 
-                # Handle each event in its own task: a long agent loop (Builder iterating on a fix) must not
-                # delay detection of the next event (NFR1). drain() still waits for every handler to finish.
                 task = asyncio.create_task(self._dispatch(event, callbacks))
                 self._dispatch_tasks.add(task)
                 task.add_done_callback(self._dispatch_tasks.discard)
@@ -217,13 +258,22 @@ class EventBus:
                 logger.error(f"Error in EventBus queue processor: {e}", exc_info=True)
 
     async def _dispatch(self, event: Event, callbacks: List[Callable[[Event], Coroutine[Any, Any, None]]]) -> None:
+        sem = self._dispatch_sem
         try:
             if callbacks:
-                results = await asyncio.gather(*(cb(event) for cb in callbacks), return_exceptions=True)
+                if sem is not None:
+                    async with sem:
+                        results = await asyncio.gather(*(cb(event) for cb in callbacks), return_exceptions=True)
+                else:
+                    results = await asyncio.gather(*(cb(event) for cb in callbacks), return_exceptions=True)
                 for result in results:
                     if isinstance(result, Exception):
                         logger.error(f"Handler failed for event {event.id} ({event.kind}): {result!r}", exc_info=result)
         finally:
+            try:
+                self._mark_event_processed(event.id)
+            except Exception:
+                pass
             self._in_flight -= 1
             self._queue.task_done()
 
@@ -244,18 +294,27 @@ class EventBus:
             except RuntimeError:
                 current = None
             if current is not loop:
-                # SSE queues belong to the server loop; asyncio queues are not thread-safe
                 loop.call_soon_threadsafe(self._broadcast_now, message)
                 return
         self._broadcast_now(message)
 
     def _broadcast_now(self, message: Dict[str, Any]) -> None:
+        self._sse_seq += 1
+        seq = self._sse_seq
+        envelope = {**message, "_sse_id": seq}
+        self._sse_history.append((seq, message))
+
         dead_listeners = []
         for q in list(self._sse_listeners):
             try:
-                q.put_nowait(message)
+                q.put_nowait(envelope)
             except asyncio.QueueFull:
-                dead_listeners.append(q)
+                # Drop oldest buffered frame instead of silently zombifying the SSE connection
+                try:
+                    q.get_nowait()
+                    q.put_nowait(envelope)
+                except Exception:
+                    dead_listeners.append(q)
             except Exception:
                 dead_listeners.append(q)
 
@@ -437,7 +496,13 @@ _global_bus: Optional[EventBus] = None
 
 def get_event_bus(db_path: str = "data/alexia.db") -> EventBus:
     """Retrieve or initialize the global EventBus instance."""
+    from alexia.core.sqlite import has_table
+
     global _global_bus
-    if _global_bus is None or _global_bus.source_db_path != resolve_db_path(db_path):
+    if (
+        _global_bus is None
+        or _global_bus.source_db_path != resolve_db_path(db_path)
+        or not has_table(_global_bus.db_path, "incidents")
+    ):
         _global_bus = EventBus(db_path=db_path)
     return _global_bus

@@ -59,15 +59,24 @@ if [ ! -f "$ENV_FILE" ]; then
   say "Writing $ENV_FILE"
   ADMIN_PASSWORD=$(head -c 18 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16)
   JWT_SECRET=$(head -c 48 /dev/urandom | base64 | tr -d '\n')
+  SECRET_KEY=$(head -c 48 /dev/urandom | base64 | tr -d '\n')
+  WEBHOOK_SECRET=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
   cat > "$ENV_FILE" <<EOF
 # Alexia DevSecOps Guardian settings.
 # After editing:  sudo systemctl restart alexia
 PORT=8080
 HOST=0.0.0.0
+ALEXIA_ENV=production
+ALEXIA_DEMO_MODE=0
+ALEXIA_COLLECTORS=on
+ALEXIA_ALLOW_SIMULATED_HEALTH=0
+ALEXIA_ALLOW_UNSIGNED_WEBHOOKS=0
 ALEXIA_DATA_DIR=$DATA_DIR
 ALEXIA_BACKUP_DIR=$BACKUP_DIR
 ALEXIA_BACKUP_KEEP=30
+ALEXIA_SECRET_KEY=$SECRET_KEY
 ALEXIA_JWT_SECRET=$JWT_SECRET
+GITHUB_WEBHOOK_SECRET=$WEBHOOK_SECRET
 ALEXIA_ADMIN_EMAIL=admin@alexia.local
 ALEXIA_ADMIN_PASSWORD=$ADMIN_PASSWORD
 NEBIUS_API_KEY=
@@ -81,6 +90,10 @@ EOF
   FIRST_INSTALL=1
 else
   say "Keeping existing settings in $ENV_FILE"
+  if ! grep -q '^ALEXIA_SECRET_KEY=' "$ENV_FILE"; then
+    SECRET_KEY=$(head -c 48 /dev/urandom | base64 | tr -d '\n')
+    echo "ALEXIA_SECRET_KEY=$SECRET_KEY" >> "$ENV_FILE"
+  fi
   FIRST_INSTALL=0
 fi
 
@@ -159,6 +172,5 @@ if [ "$FIRST_INSTALL" = 1 ]; then
   echo
   echo "   First admin       admin@alexia.local"
   echo "   Password          $ADMIN_PASSWORD"
-  echo "   Demo operator     demo / alexiaguardian2026"
 fi
 echo

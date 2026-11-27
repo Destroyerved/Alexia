@@ -31,6 +31,7 @@ EventSource = Literal[
     "collector.logs",
     "collector.auth",
     "collector.db",
+    "collector.resources",
     "webhook.git",
     "system.internal",
 ]
@@ -39,6 +40,7 @@ EventKind = Literal[
     "container_exit",
     "oom",
     "health_fail",
+    "health_recovered",
     "error_spike",
     "disk_high",
     "secret_in_diff",
@@ -469,6 +471,6 @@ class AuditEntry(BaseModel):
         self.previous_hash = self.prev_hash
         self.current_hash = self.hash
         if not self.signature:
-            self.signature = f"ed25519:{self.hash[:16]}..."
+            self.signature = "sha256-chain-legacy"
         self.verification_status = "Verified"
         return self

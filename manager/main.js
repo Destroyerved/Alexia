@@ -14,11 +14,14 @@ const { follow } = require('./lib/tail');
 app.setAppUserModelId('co.alexia.server.manager');
 
 const SECRETS = new Set([
+  'ALEXIA_SECRET_KEY',
   'ALEXIA_JWT_SECRET',
   'ALEXIA_ADMIN_PASSWORD',
   'NEBIUS_API_KEY',
   'TAVILY_API_KEY',
+  'GITHUB_TOKEN',
   'GITHUB_WEBHOOK_SECRET',
+  'VAPID_PRIVATE_KEY',
   'ALEXIA_BACKUP_PASSWORD',
 ]);
 
@@ -211,6 +214,43 @@ async function poll() {
   updateTray();
 }
 
+function isAllowedLocalOrigin(rawUrl) {
+  try {
+    const parsed = new URL(String(rawUrl || ''));
+    const port = Number(envfile.read().values.PORT || 8080);
+    return (
+      parsed.protocol === 'http:' &&
+      parsed.hostname === '127.0.0.1' &&
+      Number(parsed.port || 80) === port
+    );
+  } catch {
+    return false;
+  }
+}
+
+app.on('web-contents-created', (_event, contents) => {
+  if (contents.getType() === 'webview') {
+    contents.on('will-navigate', (event, navigationUrl) => {
+      if (!isAllowedLocalOrigin(navigationUrl)) {
+        event.preventDefault();
+        if (/^https?:\/\//i.test(navigationUrl)) {
+          shell.openExternal(navigationUrl);
+        }
+      }
+    });
+    contents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//i.test(url)) {
+        shell.openExternal(url);
+      }
+      return { action: 'deny' };
+    });
+    contents.session.setPermissionRequestHandler((_wc, permission, callback) => {
+      const allowedPermissions = new Set(['notifications', 'clipboard-read', 'clipboard-sanitized-write']);
+      callback(allowedPermissions.has(permission));
+    });
+  }
+});
+
 function createWindow(show = true) {
   win = new BrowserWindow({
     width: 1260,
@@ -226,8 +266,19 @@ function createWindow(show = true) {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
       webviewTag: true,
     },
+  });
+  win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    delete webPreferences.preload;
+    delete webPreferences.preloadURL;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+    if (!isAllowedLocalOrigin(params.src)) {
+      event.preventDefault();
+    }
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.once('ready-to-show', () => {
@@ -550,7 +601,8 @@ ipcMain.handle('quick-tunnel-on', () =>
 );
 
 ipcMain.handle('open', (_e, target) => {
-  const port = Number(envfile.read().values.PORT || 8080);
+  const envVals = envfile.read().values;
+  const port = Number(envVals.PORT || 8080);
   const map = {
     root: paths.ROOT,
     app: paths.APP,
@@ -560,9 +612,15 @@ ipcMain.handle('open', (_e, target) => {
     env: paths.ENV_FILE,
     admin: `http://127.0.0.1:${port}/`,
     console: `http://127.0.0.1:${port}/`,
+    dashboard: `http://127.0.0.1:${port}/`,
+    internetUrl: envVals.ALEXIA_INTERNET_URL || '',
   };
-  const dest = map[target] || target;
-  if (/^https?:\/\//.test(dest)) return shell.openExternal(dest);
+  const key = String(target || '').trim();
+  if (!Object.prototype.hasOwnProperty.call(map, key) || !map[key]) {
+    return false;
+  }
+  const dest = map[key];
+  if (/^https?:\/\//i.test(dest)) return shell.openExternal(dest);
   return shell.openPath(dest);
 });
 ipcMain.handle('open-external', (_e, url) => {

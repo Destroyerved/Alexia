@@ -17,6 +17,7 @@ htmlcov/
 /build/
 *.egg-info/
 *.spec
+!AlexiaServer.spec
 
 # Built installers / binaries (published via GitHub Releases)
 *.exe

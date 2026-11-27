@@ -27,9 +27,10 @@ export interface ModelUsageSummary {
   total_output_tokens: number;
   avg_latency_ms: number;
   total_tavily_calls: number;
+  cache_hit_rate_percent?: number;
   tier_breakdown: {
-    nano: { calls: number; cost_usd: number };
-    super: { calls: number; cost_usd: number };
-    ultra: { calls: number; cost_usd: number };
+    nano: { calls: number; tokens?: number; cost_usd: number };
+    super: { calls: number; tokens?: number; cost_usd: number };
+    ultra: { calls: number; tokens?: number; cost_usd: number };
   };
 }

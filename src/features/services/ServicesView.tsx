@@ -73,59 +73,67 @@ export const ServicesView: React.FC = () => {
 
       {/* Main Service List */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {services.map((srv) => (
-          <div
-            key={srv.id}
-            onClick={() => setSelectedService(srv)}
-            className="web-card p-5 flex flex-col justify-between space-y-4 cursor-pointer hover:border-[var(--border-highlight)] transition-colors group"
-          >
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-semibold text-sm text-[var(--text-primary)] font-mono">
-                  {srv.name}
-                </span>
-                <StatusBadge status={srv.status} size="sm" />
-              </div>
-
-              <div className="text-xs text-[var(--text-muted)] font-mono truncate">
-                {srv.image}
-              </div>
-
-              <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-[var(--border-subtle)] text-xs font-mono">
-                <div>
-                  <span className="text-[10px] text-[var(--text-muted)] block">CPU</span>
-                  <span className="font-semibold text-[var(--text-primary)]">{srv.cpu_percent}%</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-[var(--text-muted)] block">Memory</span>
-                  <span className="font-semibold text-[var(--text-primary)]">{srv.memory_mb} MB</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-[var(--text-muted)] block">Restarts</span>
-                  <span className={`font-semibold ${srv.restart_count > 0 ? 'text-[var(--status-warning)]' : 'text-[var(--text-primary)]'}`}>
-                    {srv.restart_count}
+        {services.map((srv) => {
+          const canRollback = deployments.some(
+            (d) => d.service_name === srv.name && d.rollback_available !== false
+          );
+          return (
+            <div
+              key={srv.id}
+              onClick={() => setSelectedService(srv)}
+              className="web-card p-5 flex flex-col justify-between space-y-4 cursor-pointer hover:border-[var(--border-highlight)] transition-colors group"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-semibold text-sm text-[var(--text-primary)] font-mono">
+                    {srv.name}
                   </span>
+                  <StatusBadge status={srv.status} size="sm" />
+                </div>
+
+                <div className="text-xs text-[var(--text-muted)] font-mono truncate">
+                  {srv.image}
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-[var(--border-subtle)] text-xs font-mono">
+                  <div>
+                    <span className="text-[10px] text-[var(--text-muted)] block">CPU</span>
+                    <span className="font-semibold text-[var(--text-primary)]">{srv.cpu_percent}%</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-[var(--text-muted)] block">Memory</span>
+                    <span className="font-semibold text-[var(--text-primary)]">{srv.memory_mb} MB</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-[var(--text-muted)] block">Restarts</span>
+                    <span className={`font-semibold ${srv.restart_count > 0 ? 'text-[var(--status-warning)]' : 'text-[var(--text-primary)]'}`}>
+                      {srv.restart_count}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="flex items-center justify-between pt-3 border-t border-[var(--border-subtle)] text-xs">
-              <span className="text-[11px] text-[var(--text-muted)] font-mono">
-                {srv.container_id}
-              </span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setRollbackModalService(srv);
-                }}
-                className="web-btn-secondary text-[11px] py-1 px-2.5"
-              >
-                <RotateCcw size={12} />
-                <span>Rollback</span>
-              </button>
+              <div className="flex items-center justify-between pt-3 border-t border-[var(--border-subtle)] text-xs">
+                <span className="text-[11px] text-[var(--text-muted)] font-mono">
+                  {srv.container_id}
+                </span>
+                <button
+                  type="button"
+                  disabled={!canRollback}
+                  title={canRollback ? `Rollback ${srv.name}` : 'No rollback-eligible deployment available'}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (canRollback) setRollbackModalService(srv);
+                  }}
+                  className="web-btn-secondary text-[11px] py-1 px-2.5 disabled:opacity-45 disabled:cursor-not-allowed"
+                >
+                  <RotateCcw size={12} />
+                  <span>Rollback</span>
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Selected Service Diagnostics Drawer/Section */}
@@ -212,38 +220,46 @@ export const ServicesView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border-subtle)]">
-              {deployments.map((dep) => {
-                const gates = [...dep.pre_deploy_gates, ...dep.health_gates];
-                const gatesPassed = gates.filter((g) => g.passed).length;
-                return (
-                  <tr key={dep.id} className="hover:bg-[var(--surface-hover)] align-top">
-                    <td className="py-2.5 px-3.5 font-mono text-[var(--text-primary)]">{dep.id}</td>
-                    <td className="py-2.5 px-3.5 font-mono text-[var(--text-secondary)]">
-                      {dep.image_tag}
-                      <span className="block text-[10px] text-[var(--text-muted)]">prev: {dep.previous_known_good_image}</span>
-                    </td>
-                    <td className="py-2.5 px-3.5 text-[var(--text-primary)]">{dep.status}</td>
-                    <td className="py-2.5 px-3.5 text-[var(--text-secondary)]" title={gates.map((g) => `${g.passed ? 'PASS' : 'FAIL'} ${g.name}: ${g.details}`).join('\n')}>
-                      {gatesPassed}/{gates.length} passed
-                    </td>
-                    <td className="py-2.5 px-3.5 text-[var(--text-muted)] font-mono">{formatRelativeTime(dep.started_at)}</td>
-                    <td className="py-2.5 px-3.5 text-right">
-                      {dep.rollback_available && (
-                        <button
-                          type="button"
-                          onClick={async () =>
-                            showResult(await rollbackDeployment(dep.service_name, dep.previous_known_good_image, 'Operator rollback from Deployments', dep.id))
-                          }
-                          className="web-btn-secondary text-[11px]"
-                        >
-                          <RotateCcw size={12} />
-                          <span>Roll back</span>
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+              {deployments.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-6 px-3.5 text-center text-[var(--text-muted)]">
+                    No deployment records recorded yet.
+                  </td>
+                </tr>
+              ) : (
+                deployments.map((dep) => {
+                  const gates = [...dep.pre_deploy_gates, ...dep.health_gates];
+                  const gatesPassed = gates.filter((g) => g.passed).length;
+                  return (
+                    <tr key={dep.id} className="hover:bg-[var(--surface-hover)] align-top">
+                      <td className="py-2.5 px-3.5 font-mono text-[var(--text-primary)]">{dep.id}</td>
+                      <td className="py-2.5 px-3.5 font-mono text-[var(--text-secondary)]">
+                        {dep.image_tag}
+                        <span className="block text-[10px] text-[var(--text-muted)]">prev: {dep.previous_known_good_image}</span>
+                      </td>
+                      <td className="py-2.5 px-3.5 text-[var(--text-primary)]">{dep.status}</td>
+                      <td className="py-2.5 px-3.5 text-[var(--text-secondary)]" title={gates.map((g) => `${g.passed ? 'PASS' : 'FAIL'} ${g.name}: ${g.details}`).join('\n')}>
+                        {gatesPassed}/{gates.length} passed
+                      </td>
+                      <td className="py-2.5 px-3.5 text-[var(--text-muted)] font-mono">{formatRelativeTime(dep.started_at)}</td>
+                      <td className="py-2.5 px-3.5 text-right">
+                        {dep.rollback_available && (
+                          <button
+                            type="button"
+                            onClick={async () =>
+                              showResult(await rollbackDeployment(dep.service_name, dep.previous_known_good_image, 'Operator rollback from Deployments', dep.id))
+                            }
+                            className="web-btn-secondary text-[11px]"
+                          >
+                            <RotateCcw size={12} />
+                            <span>Roll back</span>
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
@@ -296,8 +312,9 @@ export const ServicesView: React.FC = () => {
               </button>
               <button
                 type="button"
+                disabled={!rollbackTarget}
                 onClick={handleRollbackConfirm}
-                className="web-btn-primary text-xs"
+                className="web-btn-primary text-xs disabled:opacity-45 disabled:cursor-not-allowed"
               >
                 Confirm Rollback
               </button>

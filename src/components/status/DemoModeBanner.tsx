@@ -1,7 +1,11 @@
 import React from 'react';
 import { FlaskConical, ShieldAlert } from 'lucide-react';
+import { useAlexia } from '../../context/AlexiaContext';
 
 export const DemoModeBanner: React.FC = () => {
+  const { isDemoMode, isLiveBackend } = useAlexia();
+  if (!isDemoMode) return null;
+
   return (
     <div
       className="border-b px-4 py-1.5 flex items-center justify-between text-xs z-30 shrink-0"
@@ -20,10 +24,10 @@ export const DemoModeBanner: React.FC = () => {
             border: '1px solid var(--accent-primary)',
           }}
         >
-          DEMO MODE
+          {isLiveBackend ? 'SANDBOX DEMO' : 'OFFLINE PREVIEW'}
         </span>
         <span className="hidden sm:inline text-[var(--text-secondary)]">
-          — Real-time DevSecOps simulation on ShopLite Docker environment. Telemetry & scenarios demonstrate multi-agent triage.
+          — Real-time DevSecOps simulation on ShopLite environment. Telemetry & scenarios demonstrate multi-agent triage.
         </span>
       </div>
       <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]">

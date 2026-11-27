@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 from alexia.core.budget import get_budget_guard
 from alexia.core.schemas import DiagnosticSource
 from alexia.core.paths import resolve_db_path
+from alexia.core.sqlite import connect as sqlite_connect
 
 logger = logging.getLogger("alexia.tavily")
 
@@ -45,9 +46,7 @@ class TavilySearchClient:
         self._init_cache_db()
 
     def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, timeout=10)
-        conn.row_factory = sqlite3.Row
-        return conn
+        return sqlite_connect(self.db_path)
 
     def _init_cache_db(self) -> None:
         with self._lock, self._get_connection() as conn:
@@ -70,9 +69,13 @@ class TavilySearchClient:
         max_results: int = 5,
         search_depth: str = "basic",
     ) -> List[DiagnosticSource]:
-        """Perform web search with 24-hour query cache and budget accounting."""
-        q_hash = hashlib.sha256(query.strip().lower().encode("utf-8")).hexdigest()
+        """Perform redacted web search with 24-hour query cache and budget accounting (FR-C4)."""
+        from alexia.core.redact import redact
+
+        safe_query = str(redact(query or "", mask_ips=True)).strip()
+        q_hash = hashlib.sha256(safe_query.lower().encode("utf-8")).hexdigest()
         now = time.time()
+        budget_guard = get_budget_guard(self.source_db_path)
 
         # 1. Check cache (24 hours TTL)
         with self._lock, self._get_connection() as conn:
@@ -83,8 +86,8 @@ class TavilySearchClient:
             )
             row = cur.fetchone()
             if row:
-                logger.info(f"Tavily cache hit for query: '{query}'")
-                self.budget_guard.record_tavily_call(query=query, cached=True)
+                logger.info(f"Tavily cache hit for query: '{safe_query}'")
+                budget_guard.record_tavily_call(query=safe_query, cached=True)
                 cached_data = json.loads(row["results_json"])
                 return [DiagnosticSource(**s) for s in cached_data]
 
@@ -94,7 +97,7 @@ class TavilySearchClient:
         if self._client:
             try:
                 response = self._client.search(
-                    query=query,
+                    query=safe_query,
                     max_results=max_results,
                     search_depth=search_depth,
                 )
@@ -107,14 +110,13 @@ class TavilySearchClient:
                             snippet=r.get("content", "")[:300],
                         )
                     )
-                self.budget_guard.record_tavily_call(query=query, cached=False)
+                budget_guard.record_tavily_call(query=safe_query, cached=False)
             except Exception as e:
                 logger.error(f"Tavily API search error: {e}. Falling back to domain grounding.")
-                sources = self._fallback_sources(query)
+                sources = self._fallback_sources(safe_query)
         else:
-            # Fallback when key not provided or offline
-            sources = self._fallback_sources(query)
-            self.budget_guard.record_tavily_call(query=query, cached=False)
+            sources = self._fallback_sources(safe_query)
+            budget_guard.record_tavily_call(query=safe_query, cached=False)
 
         # 3. Store in cache (24 hours = 86400 seconds)
         expires_at = now + 86400
@@ -125,7 +127,7 @@ class TavilySearchClient:
                 INSERT OR REPLACE INTO tavily_cache (query_hash, query, results_json, created_at, expires_at)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (q_hash, query, sources_json, now, expires_at),
+                (q_hash, safe_query, sources_json, now, expires_at),
             )
             conn.commit()
 
@@ -198,11 +200,11 @@ class TavilySearchClient:
 _global_tavily: Optional[TavilySearchClient] = None
 
 
-def get_tavily_client() -> TavilySearchClient:
+def get_tavily_client(db_path: str = "data/alexia.db") -> TavilySearchClient:
     """Retrieve or initialize the global TavilySearchClient singleton."""
     global _global_tavily
-    if _global_tavily is None:
-        _global_tavily = TavilySearchClient()
+    if _global_tavily is None or _global_tavily.source_db_path != resolve_db_path(db_path):
+        _global_tavily = TavilySearchClient(db_path=db_path)
     return _global_tavily
 
 

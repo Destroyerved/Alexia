@@ -8,7 +8,12 @@ Must execute before any alexia module creates its SQLite singletons.
 import os
 import tempfile
 
-os.environ["ALEXIA_DATA_DIR"] = tempfile.mkdtemp(prefix="alexia_test_data_")
+_TEST_DATA_DIR = tempfile.mkdtemp(prefix="alexia_test_data_")
+os.environ["ALEXIA_DATA_DIR"] = _TEST_DATA_DIR
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_TEST_DATA_DIR, "shoplite.db")
+os.environ["ALEXIA_ENV"] = "test"
+os.environ["ALEXIA_COLLECTORS"] = "off"
+os.environ["ALEXIA_DOCKER_EVENTS"] = "off"
 os.environ.pop("ALEXIA_DB", None)
 os.environ.pop("EVIDENCE_DIR", None)
 os.environ.pop("SNAPSHOT_DIR", None)

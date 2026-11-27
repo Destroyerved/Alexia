@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
-import { ShieldCheck, PauseCircle, PlayCircle, AlertTriangle, X } from 'lucide-react';
+import { ShieldCheck, PauseCircle, PlayCircle, AlertTriangle, Fingerprint, X } from 'lucide-react';
 import { useAlexia } from '../../context/AlexiaContext';
+import { apiClient } from '../../lib/api';
 
 export const AutonomyStatus: React.FC = () => {
-  const { autonomyState, toggleAutonomy, isLiveBackend } = useAlexia();
+  const { autonomyState, toggleAutonomy, isLiveBackend, isDemoMode, sessionInfo, refresh } = useAlexia();
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [stepUpCode, setStepUpCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const isActive = autonomyState === 'Active';
-  // Pausing is the safe direction; resuming needs step-up (FR-M6)
   const needsStepUp = !isActive && isLiveBackend;
 
   const handleToggle = () => {
@@ -25,6 +25,25 @@ export const AutonomyStatus: React.FC = () => {
     setBusy(false);
     if (res.success) {
       setShowConfirmModal(false);
+    } else {
+      setError(res.message);
+    }
+  };
+
+  const confirmWithPasskey = async () => {
+    setBusy(true);
+    setError(null);
+    const su = await apiClient.stepUpWithPasskey(sessionInfo?.username || 'demo');
+    if (!su.token) {
+      setBusy(false);
+      setError(su.error || 'Passkey step-up failed');
+      return;
+    }
+    const res = await apiClient.toggleAutonomy(false, sessionInfo?.username || 'Operator', su.token);
+    setBusy(false);
+    if (res.success) {
+      setShowConfirmModal(false);
+      await refresh();
     } else {
       setError(res.message);
     }
@@ -56,7 +75,6 @@ export const AutonomyStatus: React.FC = () => {
         )}
       </button>
 
-      {/* Safety Confirmation Dialog */}
       {showConfirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
           <div
@@ -69,7 +87,7 @@ export const AutonomyStatus: React.FC = () => {
           >
             <button
               onClick={() => setShowConfirmModal(false)}
-              className="absolute top-4 right-4 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors p-1"
+              className="absolute top-4 right-4 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors p-1 cursor-pointer"
               aria-label="Close modal"
             >
               <X size={18} />
@@ -96,38 +114,48 @@ export const AutonomyStatus: React.FC = () => {
               </div>
             </div>
 
-            <p className="text-xs text-[var(--text-secondary)] mb-6 leading-relaxed">
+            <p className="text-xs text-[var(--text-secondary)] mb-5 leading-relaxed">
               {isActive ? (
                 <>
-                  Pausing autonomy halts all automated remediations, container restarts, and canary shifts (Tier 0 & Tier 1).
-                  <br />
+                  Pausing autonomy halts all automated remediations, container restarts, and canary shifts (Tier 0 & Tier 1) and queues them for manual approval.
                   <strong className="text-[var(--text-primary)] mt-1.5 block">
                     Security monitoring and incident detection will continue uninterrupted.
                   </strong>
                 </>
               ) : (
                 <>
-                  Resuming autonomy allows Alexia agents (Sentinel, Healer, Builder, Deployer, Integrity) to resume automated diagnoses and execute Tier 0 permitted actions.
+                  Resuming autonomy allows Alexia agents (Sentinel, Healer, Builder, Deployer, Integrity) to execute catalogued Tier-0 remediations automatically.
                 </>
               )}
             </p>
 
             {needsStepUp && (
-              <div className="mb-4">
-                <label htmlFor="resume-step-up" className="block text-xs text-[var(--text-secondary)] mb-1 font-medium">
-                  Step-up verification (passkey / biometric, or 6-digit TOTP)
-                </label>
-                <input
-                  id="resume-step-up"
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  maxLength={6}
-                  placeholder="Demo code: 123456"
-                  value={stepUpCode}
-                  onChange={(e) => setStepUpCode(e.target.value.replace(/\D/g, ''))}
-                  className="web-input w-full text-xs font-mono tracking-widest"
-                />
+              <div className="mb-4 space-y-3">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={confirmWithPasskey}
+                  className="web-btn-secondary w-full text-xs justify-center border-[var(--border-highlight)] text-[var(--accent-primary)]"
+                >
+                  <Fingerprint size={15} />
+                  <span>Resume with Passkey / Biometric</span>
+                </button>
+                <div>
+                  <label htmlFor="resume-step-up" className="block text-xs text-[var(--text-secondary)] mb-1 font-medium">
+                    Or enter 6-digit TOTP {isDemoMode ? '(Demo: 123456)' : ''}
+                  </label>
+                  <input
+                    id="resume-step-up"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    placeholder={isDemoMode ? '123456' : '000000'}
+                    value={stepUpCode}
+                    onChange={(e) => setStepUpCode(e.target.value.replace(/\D/g, ''))}
+                    className="web-input w-full text-xs font-mono tracking-widest"
+                  />
+                </div>
               </div>
             )}
 
@@ -141,7 +169,7 @@ export const AutonomyStatus: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setShowConfirmModal(false)}
-                className="cyber-btn-secondary text-xs"
+                className="web-btn-secondary text-xs"
               >
                 Cancel
               </button>
@@ -149,7 +177,7 @@ export const AutonomyStatus: React.FC = () => {
                 type="button"
                 onClick={confirmAction}
                 disabled={busy || (needsStepUp && stepUpCode.length !== 6)}
-                className="cyber-btn-primary text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                className="web-btn-primary text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                 style={
                   isActive
                     ? {

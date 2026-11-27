@@ -1,14 +1,11 @@
 import React, { useState } from 'react';
 import {
   Search,
-  AlertTriangle,
-  Bot,
   ExternalLink,
-  ChevronRight,
   X,
-  FileText,
-  Activity,
-  ShieldCheck,
+  RefreshCw,
+  Download,
+  CheckCircle2,
 } from 'lucide-react';
 import { useAlexia } from '../../context/AlexiaContext';
 import { SeverityBadge } from '../../components/status/SeverityBadge';
@@ -17,12 +14,14 @@ import { formatCurrency, formatRelativeTime } from '../../lib/formatters';
 import { CodeFixPanel } from './CodeFixPanel';
 
 export const IncidentsView: React.FC = () => {
-  const { incidents, selectedIncidentId, setSelectedIncidentId, modelCalls } = useAlexia();
+  const { incidents, selectedIncidentId, setSelectedIncidentId, modelCalls, reinvestigateIncident } = useAlexia();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [severityFilter, setSeverityFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [activeTab, setActiveTab] = useState<'details' | 'diagnosis' | 'code' | 'verification'>('details');
+  const [investigating, setInvestigating] = useState(false);
+  const [investigateFeedback, setInvestigateFeedback] = useState<string | null>(null);
 
   const filteredIncidents = incidents.filter((inc) => {
     const matchesSearch =
@@ -36,8 +35,26 @@ export const IncidentsView: React.FC = () => {
   });
 
   const selectedIncident = incidents.find((i) => i.id === selectedIncidentId) || null;
-  // FR-U2 reasoning trace: every model call made for this incident (model, tokens, latency, cost)
   const incidentCalls = selectedIncident ? modelCalls.filter((c) => c.incident_id === selectedIncident.id) : [];
+
+  const handleReinvestigate = async () => {
+    if (!selectedIncident) return;
+    setInvestigating(true);
+    const res = await reinvestigateIncident(selectedIncident.id);
+    setInvestigating(false);
+    setInvestigateFeedback(res.message);
+    setTimeout(() => setInvestigateFeedback(null), 4000);
+  };
+
+  const handleExportIncidentJson = () => {
+    if (!selectedIncident) return;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(selectedIncident, null, 2)], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${selectedIncident.id}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="space-y-6">
@@ -88,13 +105,13 @@ export const IncidentsView: React.FC = () => {
             <option value="acting">Acting</option>
             <option value="verifying">Verifying</option>
             <option value="resolved">Resolved</option>
+            <option value="escalated">Escalated</option>
           </select>
         </div>
       </div>
 
       {/* Main Incident List & Detail Panel */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Incident List */}
         <div className={`space-y-3 ${selectedIncident ? 'lg:col-span-6 xl:col-span-5' : 'lg:col-span-12'}`}>
           {filteredIncidents.length === 0 ? (
             <div className="web-card p-10 text-center text-sm text-[var(--text-muted)]">
@@ -146,10 +163,9 @@ export const IncidentsView: React.FC = () => {
         {/* Selected Incident Detail Pane */}
         {selectedIncident && (
           <div className="lg:col-span-6 xl:col-span-7 web-card p-6 space-y-5 lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
-            {/* Header */}
             <div className="flex items-start justify-between gap-3 pb-4 border-b border-[var(--border-subtle)]">
               <div>
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex flex-wrap items-center gap-2 mb-2">
                   <SeverityBadge severity={selectedIncident.severity} size="sm" />
                   <span className="font-mono text-xs font-bold text-[var(--text-primary)]">
                     {selectedIncident.id}
@@ -162,15 +178,44 @@ export const IncidentsView: React.FC = () => {
                   {selectedIncident.title}
                 </h2>
               </div>
-              <button
-                onClick={() => setSelectedIncidentId(null)}
-                className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-hover)] cursor-pointer"
-                title="Close panel"
-                aria-label="Close details"
-              >
-                <X size={18} />
-              </button>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  disabled={investigating}
+                  onClick={handleReinvestigate}
+                  className="web-btn-secondary text-[11px] py-1 px-2.5"
+                  title="Run fresh Nemotron Super/Ultra investigation"
+                >
+                  <RefreshCw size={12} className={investigating ? 'animate-spin' : ''} />
+                  <span>{investigating ? 'Analyzing...' : 'Re-investigate'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportIncidentJson}
+                  className="web-btn-secondary text-[11px] py-1 px-2.5"
+                  title="Export incident timeline & proof as JSON"
+                >
+                  <Download size={12} />
+                  <span>JSON</span>
+                </button>
+                <button
+                  onClick={() => setSelectedIncidentId(null)}
+                  className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-hover)] cursor-pointer"
+                  title="Close panel"
+                  aria-label="Close details"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
+
+            {investigateFeedback && (
+              <div className="p-2.5 rounded-lg bg-[var(--status-success-bg)] text-[var(--status-success)] text-xs flex items-center gap-2">
+                <CheckCircle2 size={14} />
+                <span>{investigateFeedback}</span>
+              </div>
+            )}
 
             {/* Sub-tabs */}
             <div className="flex items-center gap-4 border-b border-[var(--border-subtle)] text-xs font-medium">
@@ -228,6 +273,15 @@ export const IncidentsView: React.FC = () => {
                   </p>
                 </div>
 
+                {Boolean(selectedIncident.metadata?.latest_investigation) && (
+                  <div className="p-3 rounded-xl border border-[var(--border-highlight)] bg-[var(--accent-muted)] space-y-1">
+                    <span className="font-semibold text-[var(--accent-primary)] block">Latest AI Investigation Update</span>
+                    <p className="text-[var(--text-primary)] whitespace-pre-wrap">
+                      {String(selectedIncident.metadata?.latest_investigation ?? '')}
+                    </p>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3.5 rounded-xl bg-[var(--surface-hover)] border border-[var(--border-subtle)] font-mono text-[11px]">
                   <div>
                     <span className="text-[var(--text-muted)] block">Agent</span>
@@ -243,7 +297,6 @@ export const IncidentsView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Lifecycle Stage Steps */}
                 <div>
                   <h4 className="font-semibold text-[var(--text-primary)] mb-2">Remediation Steps</h4>
                   <div className="space-y-2">
@@ -325,7 +378,9 @@ export const IncidentsView: React.FC = () => {
                     </div>
 
                     <div>
-                      <h4 className="font-semibold text-[var(--text-primary)] mb-1.5">Reasoning Trace ({incidentCalls.length} model calls)</h4>
+                      <h4 className="font-semibold text-[var(--text-primary)] mb-1.5">
+                        Reasoning Trace ({incidentCalls.length} model calls)
+                      </h4>
                       {incidentCalls.length ? (
                         <div className="overflow-x-auto">
                           <table className="w-full text-left font-mono text-[11px]">
@@ -364,7 +419,7 @@ export const IncidentsView: React.FC = () => {
               </div>
             )}
 
-            {/* Tab: Code Fix (Builder's patch, regression test and sandbox proof) */}
+            {/* Tab: Code Fix */}
             {activeTab === 'code' && selectedIncident.metadata?.code_fix && (
               <CodeFixPanel fix={selectedIncident.metadata.code_fix} proof={selectedIncident.metadata.proof_of_fix} />
             )}
@@ -380,7 +435,7 @@ export const IncidentsView: React.FC = () => {
                           BEFORE FIX
                         </span>
                         <code className="text-[11px] text-[var(--status-critical)] font-mono block">
-                          {selectedIncident.verification.test_before.output}
+                          {selectedIncident.verification.test_before?.output || String(selectedIncident.verification.test_before || 'Failed')}
                         </code>
                       </div>
 
@@ -389,15 +444,22 @@ export const IncidentsView: React.FC = () => {
                           AFTER FIX
                         </span>
                         <code className="text-[11px] text-[var(--status-success)] font-mono block">
-                          {selectedIncident.verification.test_after.output}
+                          {selectedIncident.verification.test_after?.output || String(selectedIncident.verification.test_after || 'Passed')}
                         </code>
                       </div>
                     </div>
 
-                    <div className="p-3.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-main)] text-[11px] font-mono flex items-center justify-between">
-                      <span>Probe: HTTP {selectedIncident.verification.health_check.http_code} ({selectedIncident.verification.health_check.latency_ms}ms)</span>
-                      <span className="text-[var(--accent-primary)] font-semibold">Healthy</span>
-                    </div>
+                    {selectedIncident.verification.health_check && (
+                      <div className="p-3.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-main)] text-[11px] font-mono flex items-center justify-between">
+                        <span>
+                          Probe: HTTP {selectedIncident.verification.health_check.http_code ?? 200} (
+                          {selectedIncident.verification.health_check.latency_ms ?? 0}ms)
+                        </span>
+                        <span className="text-[var(--accent-primary)] font-semibold capitalize">
+                          {selectedIncident.verification.health_check.status || 'Healthy'}
+                        </span>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <p className="text-center py-6 text-[var(--text-muted)]">Verification suite pending.</p>

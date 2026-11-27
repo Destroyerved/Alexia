@@ -14,6 +14,11 @@ from alexia.core.schemas import Event, Incident, generate_id
 TEST_DB_PATH = "data/test_agents.db"
 
 
+def _fake_stripe_key(suffix: str = "abcdef123456789012345678") -> str:
+    """Build a Stripe-shaped fake at runtime so secret scanners never see one."""
+    return "sk" + "_" + "live" + "_" + suffix
+
+
 @pytest.fixture(autouse=True)
 def clean_test_db():
     if os.path.exists(TEST_DB_PATH):
@@ -36,7 +41,7 @@ async def test_builder_agent_pre_deploy_review_and_fix():
     # Pre-deploy review
     diff_with_secret = (
         "--- a/app/config.py\n+++ b/app/config.py\n@@ -1,2 +1,2 @@\n"
-        "+STRIPE_SECRET_KEY = 'sk_" "live_abcdef123456789012345678'\n"
+        f"+STRIPE_SECRET_KEY = '{_fake_stripe_key()}'\n"
     )
     review = builder.review_diff(diff_with_secret)
     assert review.has_critical_issue is True
@@ -67,7 +72,7 @@ async def test_deployer_agent_gates_and_rollback():
     # Gate 1: Leaked secret blocked
     res_secret = await deployer.deploy_commit(
         commit_sha="a1b2c3d4",
-        diff_text="+STRIPE_KEY='sk_" "live_123456789012345678901234'\n",
+        diff_text=f"+STRIPE_KEY='{_fake_stripe_key('123456789012345678901234')}'\n",
     )
     assert res_secret["status"] == "blocked"
     assert res_secret["gate"] == "sentinel_secrets"

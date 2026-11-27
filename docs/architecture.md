@@ -208,6 +208,54 @@ Alexia enforces security strictly in code rather than relying on LLM self-polici
 - Tokens expire in 5 minutes (300s).
 - Every token is strictly single-use; upon consumption, it is marked as `used` in SQLite to prevent replay attacks.
 
+### 4.3 Agent Interface Contract
+
+All five agents inherit `GuardianAgent` (`alexia/agents/base.py`) and declare:
+
+- `agent_id` and `role`;
+- `capabilities`: behavior labels describing what the agent owns (for example
+  `secret_scanning` or `rollback`), not method names;
+- `entrypoints`: the public callables other components may invoke;
+- a machine-readable `describe()` for the API and registry.
+
+`alexia/agents/contracts.py` is the registry used at startup and in tests.  It
+lazily instantiates each singleton and fails fast on drift: registry and agent
+must declare the same unique capabilities and entrypoints, every entrypoint
+must be callable, and `describe()` must agree with the registry.  Agents
+exchange Pydantic models (`Incident`, `Action`, `Event`, `Diagnosis`) or
+JSON-safe dictionaries; side effects always go through `ActionExecutor`, never
+through direct shell access.
+
+### 4.4 Builder Sandbox Enforcement
+
+Model output is treated as untrusted input.  Before a generated test is written
+or a patch is applied, `alexia/tools/sandbox_policy.py`:
+
+- parses the test with `ast` and permits only a small import allowlist;
+- rejects dynamic execution, filesystem, process, and network primitives;
+- limits patches to `app/` files with hunks and rejects path traversal;
+- rejects dangerous added primitives (`subprocess`, `socket`, `open(`, ...).
+
+The sandbox then runs in a throwaway copy, with a credential-stripped
+environment (`safe_environment`), a 120-second timeout, `-B` bytecode
+suppression, and a private command runner that only accepts `sys.executable`.
+`diffutil` additionally resolves real paths so a symlink cannot escape the
+sandbox.
+
+### 4.5 Runtime Collectors and Production Honesty
+
+The FastAPI lifespan starts `CollectorSupervisor`
+(`alexia/collectors/supervisor.py`), which owns the health poller, Docker event
+stream (blocking SDK isolated on a daemon thread), and optional log tailer.
+Collectors can be disabled with `ALEXIA_COLLECTORS=off`; the test suite does
+this so tests never depend on the network or Docker.
+
+Health alerts are emitted only after `ALEXIA_HEALTH_FAILURE_THRESHOLD`
+consecutive failures, once per outage, and a recovery event closes the streak.
+With `ALEXIA_ENV=production`, an unreachable `/health` is an unhealthy result:
+the Healer never reports a simulated recovery.  Production webhooks likewise
+require a valid `X-Hub-Signature-256` HMAC.
+
 ---
 
 ## 5. Cryptographic Tamper-Evident Audit Ledger
@@ -229,6 +277,52 @@ The verification algorithm traverses entries from index 0 to $N$:
 1. Re-computes the SHA-256 hash using the previous entry's digest and row data.
 2. Compares the re-computed hash with the recorded hash.
 3. If any discrepancy is found, an alert is raised immediately, pinpointing the corrupted entry ID.
+
+Audit rows are appended under `BEGIN IMMEDIATE`, so two processes (server + CLI)
+cannot read the same chain head and create forked hashes.
+
+### 5.1 Durable SQLite State
+
+Every Alexia store (events, incidents, approvals, audit, runbooks, budget,
+devices, snapshots metadata) uses `alexia/core/sqlite.py`:
+
+| Setting | Value | Why |
+|---|---|---|
+| Journal | WAL | Readers do not block the writer; a crash cannot leave a half-written rollback journal. |
+| Synchronization | `FULL` | A committed incident or audit row is fsynced before the call returns. |
+| Busy timeout | 10 s | Server, CLI, and desktop manager can share `alexia.db`. |
+| Close semantics | Context manager closes | Windows cannot replace a database while a leaked handle is open. |
+| Startup check | `PRAGMA quick_check` | Corruption fails fast at startup instead of surfacing mid-incident. |
+
+Snapshots and backups use SQLite's online backup API rather than file copies,
+because committed pages may still live in the `-wal` sidecar.  Restores are
+written to a temporary file, verified with `quick_check`, and atomically renamed
+over the live database; stale `-wal`/`-shm` sidecars are removed.  The previous
+database is retained as a pre-restore copy, and the restore is recorded on the
+audit chain.
+
+### 5.2 Docker Deployment Topology
+
+```mermaid
+flowchart LR
+    subgraph Host["Docker host"]
+        A["alexia-core :8080<br/>healthcheck /health"]
+        S["shoplite-api :8000<br/>healthcheck /health"]
+        V[("./data<br/>alexia.db + shoplite.db")]
+        D["/var/run/docker.sock"]
+    end
+    A --> V
+    S --> V
+    A -. Docker events .-> D
+    A -->|"depends_on: service_healthy"| S
+```
+
+The image builds the React dashboard in a separate stage, runs uvicorn in
+exec-form so SIGTERM is handled directly, and exposes a container `HEALTHCHECK`.
+Compose uses `init: true`, restart policies, healthchecks, and
+`depends_on: service_healthy`; SQLite is the only database, so the unused
+Postgres service is not deployed.  `.dockerignore` keeps `.env`, runtime
+databases, caches, and prior frontend builds out of the image.
 
 ---
 

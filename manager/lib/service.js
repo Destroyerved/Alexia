@@ -76,10 +76,12 @@ function markCleanStop() {
 
 /** Stops the AlexiaServer.exe or python process of this install, wherever it is in its restart loop. */
 async function killServerProcess() {
+  const rootPattern = `${paths.ROOT}\\*`;
   const appPattern = `*${paths.APP}*`;
   await ps(
     `Get-CimInstance Win32_Process | Where-Object { ` +
-      `($_.Name -eq 'AlexiaServer.exe') -or ($_.Name -eq 'python.exe' -and $_.CommandLine -like ${psQuote(appPattern)}) ` +
+      `($_.Name -eq 'AlexiaServer.exe' -and $_.ExecutablePath -like ${psQuote(rootPattern)}) -or ` +
+      `($_.Name -eq 'python.exe' -and $_.CommandLine -like ${psQuote(appPattern)}) ` +
       `} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
     { timeoutMs: 20000 }
   );

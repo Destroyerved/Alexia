@@ -1,8 +1,9 @@
 """Runtime data locations shared by every Alexia component.
 
 Service installs (deploy/windows/install.ps1, deploy/linux/install.sh) set ALEXIA_DATA_DIR, so every
-module must resolve the SQLite database and evidence/snapshot folders from it rather than from the
-process working directory; otherwise state splits across two databases.
+module must resolve the SQLite database and evidence/snapshot/log/backup folders from it rather than
+from the process working directory; otherwise state splits across directories or crashes on read-only
+application mounts (e.g., ProtectSystem=strict under systemd).
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ DEFAULT_DB_PATH = "data/alexia.db"
 
 
 def data_dir() -> str:
-    """Directory holding alexia.db, evidence/ and snapshots/ (ALEXIA_DATA_DIR, else ./data)."""
+    """Directory holding alexia.db, evidence/, snapshots/, and logs/ (ALEXIA_DATA_DIR, else ./data)."""
     return os.environ.get("ALEXIA_DATA_DIR") or "data"
 
 
@@ -25,13 +26,33 @@ def resolve_db_path(db_path: str = DEFAULT_DB_PATH) -> str:
             db_path = os.environ["ALEXIA_DB"]
         elif os.environ.get("ALEXIA_DATA_DIR"):
             db_path = os.path.join(os.environ["ALEXIA_DATA_DIR"], "alexia.db")
-    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+    if db_path != ":memory:":
+        os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
     return db_path
 
 
 def evidence_dir() -> str:
-    return os.environ.get("EVIDENCE_DIR") or os.path.join(data_dir(), "evidence")
+    path = os.environ.get("EVIDENCE_DIR") or os.path.join(data_dir(), "evidence")
+    os.makedirs(path, exist_ok=True)
+    return path
 
 
 def snapshot_dir() -> str:
-    return os.environ.get("SNAPSHOT_DIR") or os.path.join(data_dir(), "snapshots")
+    path = os.environ.get("SNAPSHOT_DIR") or os.path.join(data_dir(), "snapshots")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+snapshots_dir = snapshot_dir
+
+
+def logs_dir() -> str:
+    path = os.environ.get("ALEXIA_LOG_DIR") or os.path.join(data_dir(), "logs")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def backups_dir() -> str:
+    path = os.environ.get("ALEXIA_BACKUP_DIR") or "backups"
+    os.makedirs(path, exist_ok=True)
+    return path

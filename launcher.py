@@ -77,23 +77,38 @@ def setup_workspace() -> None:
     """Ensure all runtime directories, configuration files, and static PWA assets exist."""
     bundle_dir = _get_bundle_dir()
 
-    # 1. Runtime data directories
-    for d in ("data", "data/evidence", "data/snapshots", "config", "dashboard/static"):
-        os.makedirs(d, exist_ok=True)
+    # Load .env early if present so ALEXIA_DATA_DIR / ALEXIA_BACKUP_DIR are respected
+    _load_dotenv_file(".env")
 
-    # 2. Extract config/models.yaml if running standalone
+    from alexia.core.paths import backups_dir, data_dir, evidence_dir, logs_dir, snapshots_dir
+
+    # 1. Runtime data & backup directories (honors ALEXIA_DATA_DIR & ALEXIA_BACKUP_DIR)
+    for d in (data_dir(), evidence_dir(), snapshots_dir(), logs_dir(), backups_dir()):
+        try:
+            os.makedirs(d, exist_ok=True)
+        except OSError:
+            pass
+
+    # 2. Extract config/models.yaml if running standalone in a writable directory
     target_models_yaml = os.path.join("config", "models.yaml")
     bundled_models_yaml = os.path.join(bundle_dir, "config", "models.yaml")
     if not os.path.exists(target_models_yaml) and os.path.exists(bundled_models_yaml):
-        shutil.copy2(bundled_models_yaml, target_models_yaml)
+        try:
+            os.makedirs("config", exist_ok=True)
+            shutil.copy2(bundled_models_yaml, target_models_yaml)
+        except OSError:
+            pass
 
-    # 3. Extract .env from .env.example if .env does not exist
+    # 3. Extract .env from .env.example if .env does not exist and CWD is writable (not systemd /etc/alexia)
     bundled_env_example = os.path.join(bundle_dir, ".env.example")
-    if not os.path.exists(".env"):
-        if os.path.exists(".env.example"):
-            shutil.copy2(".env.example", ".env")
-        elif os.path.exists(bundled_env_example):
-            shutil.copy2(bundled_env_example, ".env")
+    if not os.path.exists(".env") and not os.environ.get("ALEXIA_SUPERVISED"):
+        try:
+            if os.path.exists(".env.example"):
+                shutil.copy2(".env.example", ".env")
+            elif os.path.exists(bundled_env_example):
+                shutil.copy2(bundled_env_example, ".env")
+        except OSError:
+            pass
     _load_dotenv_file(".env")
 
     # 4. Extract compiled React 19 PWA into dashboard/static when missing or from an older build
@@ -102,15 +117,19 @@ def setup_workspace() -> None:
     bundled_static = os.path.join(bundle_dir, "dashboard", "static")
     bundled_index = os.path.join(bundled_static, "index.html")
     if os.path.exists(bundled_index) and os.path.abspath(bundled_static) != os.path.abspath(target_static):
-        with open(bundled_index, "rb") as f:
-            bundled_html = f.read()
-        current_html = b""
-        if os.path.exists(target_index):
-            with open(target_index, "rb") as f:
-                current_html = f.read()
-        # index.html names the hashed JS/CSS bundles, so any frontend change shows up here
-        if current_html != bundled_html:
-            shutil.copytree(bundled_static, target_static, dirs_exist_ok=True)
+        try:
+            with open(bundled_index, "rb") as f:
+                bundled_html = f.read()
+            current_html = b""
+            if os.path.exists(target_index):
+                with open(target_index, "rb") as f:
+                    current_html = f.read()
+            # index.html names the hashed JS/CSS bundles, so any frontend change shows up here
+            if current_html != bundled_html:
+                os.makedirs(target_static, exist_ok=True)
+                shutil.copytree(bundled_static, target_static, dirs_exist_ok=True)
+        except OSError:
+            pass
 
 
 def _start_shoplite_target_in_background(port: int = 8000) -> Optional[threading.Thread]:
@@ -174,10 +193,12 @@ def print_banner() -> None:
 
 def main() -> int:
     # Builder sandbox entry point in the frozen exe (pytest is not bundled): run one regression file and exit
-    if len(sys.argv) >= 3 and sys.argv[1] == "--sandbox-test":
+    if "--sandbox-test" in sys.argv:
+        idx = sys.argv.index("--sandbox-test")
+        test_target = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else sys.argv[-1]
         from alexia.tools.mini_pytest import run as run_sandbox_test
 
-        return run_sandbox_test(sys.argv[2])
+        return run_sandbox_test(test_target)
 
     _configure_windows_console()
     _load_dotenv_file(".env")
@@ -191,6 +212,22 @@ def main() -> int:
     parser.add_argument("--no-browser", action="store_true", help="Do not auto-open browser on startup")
     parser.add_argument("--cli", action="store_true", help="Launch MainFrame Interactive Terminal CLI")
     parser.add_argument("--backup", action="store_true", help="Take an online SQLite database backup and exit")
+    parser.add_argument(
+        "--restore-backup",
+        dest="restore_backup",
+        metavar="NAME",
+        nargs="?",
+        const="__latest__",
+        help="Verify and restore SQLite backup NAME (or newest) and exit",
+    )
+    parser.add_argument(
+        "--verify-backup",
+        dest="verify_backup",
+        metavar="NAME",
+        nargs="?",
+        const="__latest__",
+        help="Verify SQLite backup NAME (or newest) via PRAGMA quick_check and exit",
+    )
     parser.add_argument("--Verify", "--verify-setup", dest="verify_setup", action="store_true", help="Verify setup, DB, audit chain, and API routes then exit")
     args = parser.parse_args()
 
@@ -199,6 +236,24 @@ def main() -> int:
         from alexia.tools.backup import run_backup
 
         run_backup()
+        return 0
+
+    if args.verify_backup is not None:
+        setup_workspace()
+        import json
+        from alexia.tools.backup import verify_backup
+
+        target = None if args.verify_backup == "__latest__" else args.verify_backup
+        res = verify_backup(target)
+        print(json.dumps(res))
+        return 0 if res.get("ok") else 1
+
+    if args.restore_backup is not None:
+        setup_workspace()
+        from alexia.tools.backup import restore_backup
+
+        target = None if args.restore_backup == "__latest__" else args.restore_backup
+        restore_backup(target)
         return 0
 
     print_banner()
@@ -227,10 +282,12 @@ def main() -> int:
 
     if args.verify_setup:
         from fastapi.testclient import TestClient
+        from alexia.remote.auth import get_auth_manager
 
         client = TestClient(alexia_app)
         r_health = client.get("/health")
-        r_dash = client.get("/api/v1/dashboard")
+        tok = get_auth_manager().create_session_token("admin@alexia.local", "verify_setup")
+        r_dash = client.get("/api/v1/dashboard", headers={"Authorization": f"Bearer {tok}"})
         assert r_health.status_code == 200, "Health check failed"
         assert r_dash.status_code == 200, "Dashboard API check failed"
         print("  [OK] Self-verification passed: /health and /api/v1/dashboard responded HTTP 200.")
@@ -240,12 +297,23 @@ def main() -> int:
     _start_shoplite_target_in_background(port=8000)
 
     port = args.port
+    supervised = os.environ.get("ALEXIA_SUPERVISED", "").strip() in ("1", "true", "yes")
     if not _is_port_free(port):
-        for candidate in range(8081, 8095):
-            if _is_port_free(candidate):
-                print(f"        -> Port {args.port} is in use; switching to port {candidate}")
-                port = candidate
-                break
+        if supervised:
+            # Wait briefly for previous supervised instance to release socket; never port-hop under supervision
+            for _ in range(10):
+                time.sleep(0.5)
+                if _is_port_free(port):
+                    break
+            if not _is_port_free(port):
+                print(f"  [ERROR] Supervised port {port} is already in use; refusing to hop ports.", file=sys.stderr)
+                return 1
+        else:
+            for candidate in range(8081, 8095):
+                if _is_port_free(candidate):
+                    print(f"        -> Port {args.port} is in use; switching to port {candidate}")
+                    port = candidate
+                    break
 
     url = f"http://localhost:{port}"
     print(f"  [5/5] Launching Alexia Guardian Server & Web/Mobile PWA on {url} ...")
@@ -253,7 +321,11 @@ def main() -> int:
     print(f"  Web Dashboard & Mobile PWA : {url}")
     print(f"  Live SSE Event Stream      : {url}/stream  (and {url}/api/v1/events)")
     print(f"  REST API Documentation     : {url}/docs")
-    print("  Demo Operator Login        : user: demo  |  pass: alexiaguardian2026")
+    from alexia.core.config import is_demo_mode
+    if is_demo_mode():
+        print("  Demo Operator Login        : user: demo  |  pass: alexiaguardian2026")
+    else:
+        print("  Production Operator Login  : configured via ALEXIA_ADMIN_EMAIL / ALEXIA_ADMIN_PASSWORD")
     print("  Press Ctrl+C to stop the server.")
     print("-" * 74 + "\n")
 

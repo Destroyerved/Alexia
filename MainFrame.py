@@ -10,8 +10,9 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Coroutine, Dict, List, Optional
 
 # Ensure project root is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
@@ -34,6 +35,40 @@ from alexia.remote.auth import get_auth_manager
 from alexia.remote.controls import get_remote_controller
 
 console = Console()
+
+
+class _AsyncRuntime:
+    """Persistent background event loop so EventBus & Orchestrator tasks survive across CLI menu actions."""
+
+    def __init__(self) -> None:
+        self.loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(target=self._run_loop, name="mainframe-loop", daemon=True)
+        self._thread.start()
+
+    def _run_loop(self) -> None:
+        asyncio.set_event_loop(self.loop)
+        self.loop.run_forever()
+
+    def run(self, coro: Coroutine[Any, Any, Any]) -> Any:
+        return asyncio.run_coroutine_threadsafe(coro, self.loop).result()
+
+    def shutdown(self) -> None:
+        try:
+            self.run(get_event_bus().stop())
+        except Exception:
+            pass
+        self.loop.call_soon_threadsafe(self.loop.stop)
+
+
+_RUNTIME: Optional[_AsyncRuntime] = None
+
+
+def _get_runtime() -> _AsyncRuntime:
+    global _RUNTIME
+    if _RUNTIME is None:
+        _RUNTIME = _AsyncRuntime()
+    return _RUNTIME
+
 
 # 3D ANSI Shadow Font for MAINFRAME in bright cyan
 BANNER_ART = """[bold bright_cyan]
@@ -107,7 +142,7 @@ def menu_run_scenario():
 
     console.print(f"\n[bold yellow]⚡ Executing Scenario {choice.upper()}...[/bold yellow]")
     with console.status("[bold cyan]Agents collaborating (Nemotron Nano / Super / Ultra)...[/bold cyan]"):
-        res = asyncio.run(run_scenario(choice))
+        res = _get_runtime().run(run_scenario(choice))
 
     if "error" in res:
         console.print(f"[bold red]✗ Error:[/bold red] {res['error']}")
@@ -458,56 +493,62 @@ def menu_reports():
 # Main Loop
 # ---------------------------------------------------------------------------
 def main():
-    # Initialize background bus and orchestrator
+    runtime = _get_runtime()
     bus = get_event_bus()
-    asyncio.run(bus.start())
-    orchestrator = get_orchestrator()
-    orchestrator.start()
 
-    while True:
-        console.clear()
-        print_header()
+    async def _boot():
+        await bus.start()
+        get_orchestrator().start()
 
-        # Dynamic Status Bar
-        console.print(Panel(get_status_summary(), box=box.HORIZONTALS, border_style="cyan"))
+    runtime.run(_boot())
 
-        mgr = get_approval_manager()
-        pending_cnt = len(mgr.list_pending())
-        approval_tag = f" [bold red]({pending_cnt} PENDING)[/bold red]" if pending_cnt > 0 else ""
+    try:
+        while True:
+            console.clear()
+            print_header()
 
-        console.print("[bold cyan]1.[/bold cyan] 🚀 Run Demo Scenarios [dim](S1 to S9: SQLi, Bad Deploy, Crash, Leaked Key)[/dim]")
-        console.print(f"[bold cyan]2.[/bold cyan] 🛡️ Pending Tier-1 Approvals{approval_tag} [dim](Biometric / Passkey Step-Up)[/dim]")
-        console.print("[bold cyan]3.[/bold cyan] 📡 Live Incident Timeline & Red-to-Green Fix Proofs")
-        console.print("[bold cyan]4.[/bold cyan] 🔒 Cryptographic Audit Ledger [dim](SHA-256 Hash Chain Verification)[/dim]")
-        console.print("[bold cyan]5.[/bold cyan] ⚡ Remote Controls & Autonomy Kill Switch")
-        console.print("[bold cyan]6.[/bold cyan] 📊 NVIDIA Nemotron Usage & Cost Analytics")
-        console.print("[bold cyan]7.[/bold cyan] 📜 View Regulatory Breach Reports [dim](CERT-In, DPDP 2025, GDPR)[/dim]")
-        console.print("[bold cyan]8.[/bold cyan] 🔄 Reset Demo Environment")
-        console.print("[bold cyan]9.[/bold cyan] 🚪 Exit\n")
+            # Dynamic Status Bar
+            console.print(Panel(get_status_summary(), box=box.HORIZONTALS, border_style="cyan"))
 
-        choice = Prompt.ask("[bold cyan]Select option[/bold cyan]", choices=["1", "2", "3", "4", "5", "6", "7", "8", "9"], default="1")
+            mgr = get_approval_manager()
+            pending_cnt = len(mgr.list_pending())
+            approval_tag = f" [bold red]({pending_cnt} PENDING)[/bold red]" if pending_cnt > 0 else ""
 
-        if choice == "1":
-            menu_run_scenario()
-        elif choice == "2":
-            menu_approvals()
-        elif choice == "3":
-            menu_incident_feed()
-        elif choice == "4":
-            menu_audit_chain()
-        elif choice == "5":
-            menu_controls()
-        elif choice == "6":
-            menu_analytics()
-        elif choice == "7":
-            menu_reports()
-        elif choice == "8":
-            reset_demo_environment()
-            console.print("[bold green]✓ Demo environment reset. Autonomy ACTIVE, IP blocklists cleared.[/bold green]")
-            time.sleep(1)
-        elif choice == "9":
-            console.print("\n[bold cyan]Exiting MainFrame CLI. Guardian background daemon active.[/bold cyan]")
-            break
+            console.print("[bold cyan]1.[/bold cyan] 🚀 Run Demo Scenarios [dim](S1 to S9: SQLi, Bad Deploy, Crash, Leaked Key)[/dim]")
+            console.print(f"[bold cyan]2.[/bold cyan] 🛡️ Pending Tier-1 Approvals{approval_tag} [dim](Biometric / Passkey Step-Up)[/dim]")
+            console.print("[bold cyan]3.[/bold cyan] 📡 Live Incident Timeline & Red-to-Green Fix Proofs")
+            console.print("[bold cyan]4.[/bold cyan] 🔒 Cryptographic Audit Ledger [dim](SHA-256 Hash Chain Verification)[/dim]")
+            console.print("[bold cyan]5.[/bold cyan] ⚡ Remote Controls & Autonomy Kill Switch")
+            console.print("[bold cyan]6.[/bold cyan] 📊 NVIDIA Nemotron Usage & Cost Analytics")
+            console.print("[bold cyan]7.[/bold cyan] 📜 View Regulatory Breach Reports [dim](CERT-In, DPDP 2025, GDPR)[/dim]")
+            console.print("[bold cyan]8.[/bold cyan] 🔄 Reset Demo Environment")
+            console.print("[bold cyan]9.[/bold cyan] 🚪 Exit\n")
+
+            choice = Prompt.ask("[bold cyan]Select option[/bold cyan]", choices=["1", "2", "3", "4", "5", "6", "7", "8", "9"], default="1")
+
+            if choice == "1":
+                menu_run_scenario()
+            elif choice == "2":
+                menu_approvals()
+            elif choice == "3":
+                menu_incident_feed()
+            elif choice == "4":
+                menu_audit_chain()
+            elif choice == "5":
+                menu_controls()
+            elif choice == "6":
+                menu_analytics()
+            elif choice == "7":
+                menu_reports()
+            elif choice == "8":
+                reset_demo_environment()
+                console.print("[bold green]✓ Demo environment reset. Autonomy ACTIVE, IP blocklists cleared.[/bold green]")
+                time.sleep(1)
+            elif choice == "9":
+                console.print("\n[bold cyan]Exiting MainFrame CLI. Guardian background daemon stopped cleanly.[/bold cyan]")
+                break
+    finally:
+        runtime.shutdown()
 
 
 if __name__ == "__main__":

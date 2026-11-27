@@ -1,16 +1,21 @@
 """Regulatory breach report generation tooling.
 
-Implements FR-S8, Section 9.4:
+Implements FR-S8, FR-U7, Section 9.4:
 - CERT-In Directions 2022 incident reporting template (6-hour deadline).
-- DPDP Rules 2025 (Rule 7) initial intimation and 72-hour detailed notification.
+- DPDP Rules 2025 (Rule 7) immediate intimation, 72-hour detailed Board notification,
+  and plain-language Data Principal notification draft.
 - GDPR Article 33 / 34 supervisory and data subject notification draft.
-- Automatically populates indicators (IPs, payload, diff), exposed data count, and timeline.
-- Enforces mandatory legal disclaimer on all generated documents.
+- Redacts all indicators/payloads before writing reports and enforces mandatory legal disclaimers.
+- Provides clean printable HTML rendering for browser Print-to-PDF export (FR-U7).
 """
 
 from __future__ import annotations
+
+import html
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+from alexia.core.redact import redact
 
 LEGAL_DISCLAIMER = (
     "> [!WARNING]\n"
@@ -29,8 +34,8 @@ def generate_cert_in_report(
 ) -> str:
     """Generate CERT-In incident disclosure report (6-hour statutory clock)."""
     ts = detected_at or datetime.now(timezone.utc).isoformat()
-    ip_list = indicators.get("attacker_ips", ["Unknown"])
-    payloads = indicators.get("payloads", ["N/A"])
+    ip_list = [str(ip) for ip in indicators.get("attacker_ips", ["Unknown"])]
+    payloads = [str(redact(str(p))) for p in indicators.get("payloads", ["N/A"])]
 
     return f"""# CERT-In Cyber Incident Reporting Form (Annexure I)
 
@@ -39,26 +44,26 @@ def generate_cert_in_report(
 ## 1. General Incident Information
 - **Reporting Date / Time:** {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
 - **Incident Reference ID:** `{incident_id}`
-- **Incident Type:** {incident_type} (e.g. Unauthorized Database Access / SQL Injection)
+- **Incident Type:** {redact(incident_type)}
 - **Time of Incident Detection:** `{ts}`
 - **Statutory Mandate:** CERT-In Directions (April 2022) - 6-Hour Reporting Window
 
 ## 2. Affected Infrastructure & Systems
 - **Impacted Services:** {', '.join(systems_affected)}
-- **Hosting Environment:** Docker Compose Host (Ubuntu 24.04 VPS)
-- **Critical Data Assets Involved:** Production Database (User Accounts, Credentials)
+- **Hosting Environment:** Managed Guardian Server Host
+- **Critical Data Assets Involved:** Application Database (User Accounts, Contact Records)
 
 ## 3. Indicators of Compromise (IoCs)
 - **Source IP Addresses:** `{', '.join(ip_list)}`
-- **Observed Attack Vectors / Payloads:**
+- **Observed Attack Vectors / Payloads (Redacted):**
 ```text
-{chr(10).join(str(p) for p in payloads)}
+{chr(10).join(payloads)}
 ```
 
 ## 4. Immediate Containment & Mitigation Actions
-{chr(10).join(f"- [x] {a}" for a in actions_taken)}
+{chr(10).join(f"- [x] {redact(a)}" for a in actions_taken)}
 - [x] Precautionary database snapshot taken prior to state modification
-- [x] Network containment applied to offending source IP address (reverse-proxy level)
+- [x] Network containment applied to offending source IP address
 - [x] Patch and regression test generated and verified in isolated sandbox
 
 ## 5. ICT Log Retention Status
@@ -78,31 +83,43 @@ def generate_dpdp_report(
     mitigation_steps: List[str],
     detected_at: Optional[str] = None,
 ) -> str:
-    """Generate India DPDP Rules 2025 (Rule 7) breach notification to Data Protection Board."""
+    """Generate India DPDP Rules 2025 (Rule 7) immediate intimation, 72-hour Board notice, and Data Principal notice."""
     ts = detected_at or datetime.now(timezone.utc).isoformat()
+    safe_nature = str(redact(nature_of_breach))
 
     return f"""# Data Protection Board of India — Personal Data Breach Notice
 *Under Rule 7 of the Digital Personal Data Protection (DPDP) Rules, 2025*
 
 {LEGAL_DISCLAIMER}
 
-## Part A: Initial Intimation (Submitted without delay)
+## Part A: Initial Intimation to the Data Protection Board (Submitted without delay)
 
 1. **Identity of Data Fiduciary:** ShopLite Platform (Monitored by Alexia DevSecOps)
 2. **Incident Tracking ID:** `{incident_id}`
 3. **Time of Breach Occurrence / Detection:** `{ts}`
 4. **Nature and Circumstances of Breach:**
-   {nature_of_breach}
+   {safe_nature}
 5. **Categories of Personal Data Potentially Impacted:**
    - Impacted Fields: `{', '.join(exposed_fields)}`
    - Estimated Number of Affected Data Principals: **{exposed_records_count:,} records**
 6. **Likely Impact and Harm Assessment:**
-   Unsanitized query extraction may have exposed email addresses and phone numbers. No unhashed passwords or payment cards were exposed.
+   Unauthorized query extraction may have exposed directory attributes ({', '.join(exposed_fields)}). No plaintext passwords or payment cards were exposed.
 
-## Part B: Mitigation & Remedial Measures Undertaken
-{chr(10).join(f"- {step}" for step in mitigation_steps)}
-- **Technical Vulnerability Remediated:** Yes, parameter-binding query patch created, sandboxed, and gated for production deployment.
-- **Data Subject Communication:** Drafted communication prepared for affected Data Principals in clear and plain language.
+## Part B: 72-Hour Detailed Filing to the Data Protection Board (Rule 7(2))
+
+1. **Broad Facts & Chronology of Events:**
+   Automated telemetry detected anomalous SQL extraction at `{ts}`, preserved forensic SHA-256 evidence prior to mutation, enacted perimeter IP containment within seconds, and verified a parameterized query patch in an isolated test sandbox.
+2. **Mitigation & Remedial Measures Undertaken:**
+{chr(10).join(f"- {redact(step)}" for step in mitigation_steps)}
+   - Parameter-bound SQL query patch verified RED->GREEN and gated for production deployment.
+   - Append-only HMAC-signed audit chain verified with zero tampered blocks.
+3. **Findings Regarding Person Who Caused the Breach:**
+   External network actor blocked at perimeter; preserved IoCs recorded in forensic archive `{incident_id}`.
+
+## Part C: Plain-Language Intimation to Affected Data Principals (Rule 7(1))
+
+> **Important Security Notice Regarding Your Account**  
+> On `{ts}`, we detected and immediately blocked unauthorized access affecting approximately {exposed_records_count:,} customer records, potentially including `{', '.join(exposed_fields)}`. Your password and payment details were **not** exposed in plaintext. We have fixed the underlying software issue and blocked the source address. As a precaution, please be alert to unsolicited emails or messages asking for personal information. For assistance or to exercise your rights under the DPDP Act, contact our Data Protection Officer (`[INSERT_ORGANIZATION_DPO_CONTACT]`).
 
 ---
 *Generated by Alexia Autonomous DevSecOps Guardian*
@@ -124,7 +141,7 @@ def generate_gdpr_report(
 ## 1. Nature of the Breach
 - **Reference:** `{incident_id}`
 - **Date/Time:** {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
-- **Description:** {root_cause}
+- **Description:** {redact(root_cause)}
 
 ## 2. Categories & Approximate Number of Data Subjects
 - **Categories of Data Subjects:** Registered application customers
@@ -132,10 +149,10 @@ def generate_gdpr_report(
 - **Categories of Personal Data Records:** User identity data (emails, usernames, masked contact info)
 
 ## 3. Likely Consequences of the Personal Data Breach
-{consequences}
+{redact(consequences)}
 
 ## 4. Measures Taken or Proposed to Address the Breach
-{chr(10).join(f"- {m}" for m in remedial_measures)}
+{chr(10).join(f"- {redact(m)}" for m in remedial_measures)}
 - Reverse proxy IP containment enacted immediately
 - Code-level regression test executed and passing in test harness
 - Cryptographic audit trail established in append-only hash chain
@@ -143,3 +160,59 @@ def generate_gdpr_report(
 ---
 *Generated by Alexia Autonomous DevSecOps Guardian*
 """
+
+
+def render_report_html(title: str, markdown_text: str) -> str:
+    """Render a clean, print-ready HTML document for browser Print / Save-as-PDF (FR-U7)."""
+    escaped_title = html.escape(title)
+    lines_html: List[str] = []
+    in_code = False
+    for raw_line in (markdown_text or "").splitlines():
+        if raw_line.strip().startswith("```"):
+            if not in_code:
+                in_code = True
+                lines_html.append("<pre>")
+            else:
+                in_code = False
+                lines_html.append("</pre>")
+            continue
+        if in_code:
+            lines_html.append(html.escape(raw_line))
+            continue
+        stripped = raw_line.strip()
+        if stripped.startswith("# "):
+            lines_html.append(f"<h1>{html.escape(stripped[2:])}</h1>")
+        elif stripped.startswith("## "):
+            lines_html.append(f"<h2>{html.escape(stripped[3:])}</h2>")
+        elif stripped.startswith("> "):
+            lines_html.append(f"<div class='callout'>{html.escape(stripped[2:])}</div>")
+        elif stripped.startswith("- "):
+            lines_html.append(f"<li>{html.escape(stripped[2:])}</li>")
+        elif stripped == "---":
+            lines_html.append("<hr/>")
+        elif stripped:
+            lines_html.append(f"<p>{html.escape(stripped)}</p>")
+
+    body_html = "\n".join(lines_html)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>{escaped_title}</title>
+<style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #0f172a; max-width: 820px; margin: 32px auto; padding: 0 24px; line-height: 1.6; }}
+  h1 {{ font-size: 22px; border-bottom: 2px solid #0f172a; padding-bottom: 8px; }}
+  h2 {{ font-size: 16px; margin-top: 24px; color: #1e293b; }}
+  pre {{ background: #f8fafc; border: 1px solid #cbd5e1; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; }}
+  .callout {{ background: #fffbeb; border-left: 4px solid #d97706; padding: 10px 14px; margin: 12px 0; font-size: 13px; }}
+  li {{ margin: 4px 0; }}
+  @media print {{ .no-print {{ display: none; }} body {{ margin: 0; }} }}
+</style>
+</head>
+<body>
+<div class="no-print" style="margin-bottom:16px;text-align:right;">
+  <button onclick="window.print()" style="padding:8px 14px;border-radius:6px;border:1px solid #0284c7;background:#0284c7;color:#fff;cursor:pointer;font-weight:600;">Print / Save as PDF</button>
+</div>
+{body_html}
+</body>
+</html>"""

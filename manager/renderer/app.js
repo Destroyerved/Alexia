@@ -471,10 +471,16 @@
     ['TAVILY_API_KEY', 'Tavily Search API Key', 'Used by Healer & Sentinel for live CVE and advisory enrichment.', 'password'],
     ['DAILY_USD_BUDGET', 'Daily USD Spend Cap ($)', 'Hard daily model budget enforced by BudgetGuard.', '', '10.00'],
     ['DAILY_TOKEN_BUDGET', 'Daily Token Cap', 'Maximum daily tokens across Nano/Super/Ultra tiers.', '', '5000000'],
+    ['Security & Integrations'],
+    ['ALEXIA_ENV', 'Runtime Environment', 'production enforces strict auth, append-only triggers & HMAC webhooks.', '', 'production'],
+    ['ALEXIA_DEMO_MODE', 'Sandbox Demo Mode (0 or 1)', 'Set to 1 only on isolated evaluation environments.', '', '0'],
+    ['ALEXIA_SECRET_KEY', 'Platform HMAC Secret Key', 'Signs operator sessions, step-up tokens, and HMAC audit blocks.', 'password'],
+    ['GITHUB_WEBHOOK_SECRET', 'GitHub Webhook HMAC Secret', 'Verifies X-Hub-Signature-256 on /webhook/github.', 'password'],
+    ['GITHUB_TOKEN', 'GitHub Token (PR & Merge)', 'Optional token for automated Builder PR creation and Deployer merge.', 'password'],
+    ['VAPID_PRIVATE_KEY', 'Web Push VAPID Private Key', 'Optional key for background Mobile Companion Web Push notifications.', 'password'],
     ['Alerts & Heartbeat'],
     ['ALEXIA_ALERT_NTFY', 'ntfy topic address', 'Subscribe to the same topic in the ntfy phone app for Tier 1 alerts.', '', 'https://ntfy.sh/alexia-…'],
     ['ALEXIA_HEARTBEAT_URL', 'Heartbeat (healthchecks.io ping URL)', 'Tells you when this PC loses power or internet.', '', 'https://hc-ping.com/…'],
-    ['GITHUB_WEBHOOK_SECRET', 'GitHub Webhook HMAC Secret', 'Verifies X-Hub-Signature-256 on /webhook/github.', 'password'],
     ['Backups'],
     ['ALEXIA_BACKUP_DIR', 'Backup folder', '', 'folder', 'C:\\Alexia\\backups'],
     ['ALEXIA_BACKUP_COPY_DIR', 'Second copy folder', 'A USB drive or a cloud-synced folder.', 'folder', 'off'],
@@ -575,7 +581,7 @@
     if (result?.ok) {
       const found = result.result || {};
       const lines = ['<strong>Done.</strong> Alexia DevSecOps Guardian is installed and running.'];
-      if (found.adminPassword) lines.push(`First admin: <code>admin@alexia.local</code> / <code>${esc(found.adminPassword)}</code> — Demo operator: <code>demo</code> / <code>alexiaguardian2026</code>`);
+      if (found.adminPassword) lines.push(`First admin: <code>admin@alexia.local</code> / <code>${esc(found.adminPassword)}</code> (change password after signing in)`);
       if (found.ntfyTopic) lines.push(`Phone alerts: install the ntfy app and subscribe to <code>${esc(found.ntfyTopic)}</code>.`);
       if (found.internetUrl) lines.push(`Internet address: <code>${esc(found.internetUrl)}</code> — open it on your Mobile Companion.`);
       $('installResult').innerHTML = lines.join('<br>');

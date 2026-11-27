@@ -19,6 +19,11 @@ from alexia.core.schemas import Action, Event, Incident, generate_id
 TEST_DB_PATH = "data/test_alexia.db"
 
 
+def _fake_stripe_key(suffix: str = "abcdef123456789012345678") -> str:
+    """Build a Stripe-shaped fake at runtime so secret scanners never see one."""
+    return "sk" + "_" + "live" + "_" + suffix
+
+
 @pytest.fixture(autouse=True)
 def cleanup_test_db():
     if os.path.exists("data"):
@@ -37,8 +42,9 @@ def cleanup_test_db():
 
 
 def test_redaction_secrets_and_pii():
+    fake_gh = "ghp_" + "123456789012345678901234567890123456"
     raw = (
-        "Leaked secret: sk_" "live_abcdef123456789012345678 and token ghp_123456789012345678901234567890123456. "
+        f"Leaked secret: {_fake_stripe_key()} and token {fake_gh}. "
         "User email is john.doe@example.com, phone +1-555-019-2834, ID 1234-5678-9012. "
         "Postgres conn: postgres://admin:superSecret123@db.internal:5432/shoplite."
     )

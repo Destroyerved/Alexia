@@ -21,6 +21,7 @@ export const OverviewView: React.FC = () => {
     agents,
     services,
     modelSummary,
+    autonomyState,
     setCurrentView,
     setSelectedIncidentId,
   } = useAlexia();
@@ -30,6 +31,7 @@ export const OverviewView: React.FC = () => {
   );
   const pendingApprovals = approvals.filter((a) => a.status === 'pending');
   const healthyServicesCount = services.filter((s) => s.status === 'healthy').length;
+  const isPaused = autonomyState === 'Paused';
 
   return (
     <div className="space-y-8">
@@ -37,15 +39,22 @@ export const OverviewView: React.FC = () => {
       <div className="relative rounded-2xl border p-6 sm:p-8 overflow-hidden web-card">
 
         <div className="relative z-10 max-w-2xl">
-          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium mb-3 border"
+          <div
+            className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium mb-3 border"
             style={{
-              backgroundColor: 'var(--accent-muted)',
-              borderColor: 'var(--border-highlight)',
-              color: 'var(--accent-primary)',
+              backgroundColor: isPaused ? 'var(--status-warning-bg)' : 'var(--accent-muted)',
+              borderColor: isPaused ? 'var(--status-warning-border)' : 'var(--border-highlight)',
+              color: isPaused ? 'var(--status-warning)' : 'var(--accent-primary)',
             }}
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-primary)] animate-pulse" />
-            <span>Autonomous Security Engine Active</span>
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                isPaused ? 'bg-[var(--status-warning)]' : 'bg-[var(--accent-primary)] animate-pulse'
+              }`}
+            />
+            <span>
+              {isPaused ? 'Autonomous Remediation Paused' : 'Autonomous Security Engine Active'}
+            </span>
           </div>
 
           <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-[var(--text-primary)]">
@@ -167,45 +176,51 @@ export const OverviewView: React.FC = () => {
           </div>
 
           <div className="space-y-3">
-            {incidents.slice(0, 3).map((incident) => (
-              <div
-                key={incident.id}
-                onClick={() => {
-                  setSelectedIncidentId(incident.id);
-                  setCurrentView('incidents');
-                }}
-                className="web-card p-4 cursor-pointer hover:border-[var(--border-highlight)] transition-colors group"
-              >
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <div className="flex items-center gap-2">
-                    <SeverityBadge severity={incident.severity} size="sm" />
-                    <span className="font-mono text-xs text-[var(--text-muted)]">
-                      {incident.id}
+            {incidents.length === 0 ? (
+              <div className="web-card p-6 text-center text-xs text-[var(--text-muted)]">
+                No active or historical incidents recorded yet.
+              </div>
+            ) : (
+              incidents.slice(0, 3).map((incident) => (
+                <div
+                  key={incident.id}
+                  onClick={() => {
+                    setSelectedIncidentId(incident.id);
+                    setCurrentView('incidents');
+                  }}
+                  className="web-card p-4 cursor-pointer hover:border-[var(--border-highlight)] transition-colors group"
+                >
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2">
+                      <SeverityBadge severity={incident.severity} size="sm" />
+                      <span className="font-mono text-xs text-[var(--text-muted)]">
+                        {incident.id}
+                      </span>
+                      <span className="text-xs text-[var(--text-secondary)] font-mono">
+                        • {incident.affected_service}
+                      </span>
+                    </div>
+                    <StatusBadge status={incident.status} size="sm" />
+                  </div>
+
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)] group-hover:text-[var(--accent-primary)] transition-colors">
+                    {incident.title}
+                  </h3>
+                  <p className="text-xs text-[var(--text-secondary)] mt-1 line-clamp-2 leading-relaxed">
+                    {incident.summary}
+                  </p>
+
+                  <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-[var(--border-subtle)] text-[11px]">
+                    <span className="text-[var(--text-muted)] font-mono">
+                      Guardian: {incident.owner_agent}
                     </span>
-                    <span className="text-xs text-[var(--text-secondary)] font-mono">
-                      • {incident.affected_service}
+                    <span className="text-[var(--accent-primary)] font-medium group-hover:underline">
+                      View details →
                     </span>
                   </div>
-                  <StatusBadge status={incident.status} size="sm" />
                 </div>
-
-                <h3 className="text-sm font-semibold text-[var(--text-primary)] group-hover:text-[var(--accent-primary)] transition-colors">
-                  {incident.title}
-                </h3>
-                <p className="text-xs text-[var(--text-secondary)] mt-1 line-clamp-2 leading-relaxed">
-                  {incident.summary}
-                </p>
-
-                <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-[var(--border-subtle)] text-[11px]">
-                  <span className="text-[var(--text-muted)] font-mono">
-                    Guardian: {incident.owner_agent}
-                  </span>
-                  <span className="text-[var(--accent-primary)] font-medium group-hover:underline">
-                    View details →
-                  </span>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
@@ -227,20 +242,34 @@ export const OverviewView: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-              {services.map((srv) => (
-                <div
-                  key={srv.id}
-                  className="flex items-center justify-between text-xs py-1"
-                >
-                  <span className="font-medium text-[var(--text-primary)] font-mono">
-                    {srv.name}
-                  </span>
-                  <span className="flex items-center gap-1.5 text-[var(--status-success)] text-[11px]">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-success)]" />
-                    <span>{srv.status}</span>
-                  </span>
-                </div>
-              ))}
+              {services.map((srv) => {
+                const statusColor =
+                  srv.status === 'healthy'
+                    ? 'var(--status-success)'
+                    : srv.status === 'degraded'
+                    ? 'var(--status-warning)'
+                    : 'var(--status-critical)';
+                return (
+                  <div
+                    key={srv.id}
+                    className="flex items-center justify-between text-xs py-1"
+                  >
+                    <span className="font-medium text-[var(--text-primary)] font-mono">
+                      {srv.name}
+                    </span>
+                    <span
+                      className="flex items-center gap-1.5 text-[11px]"
+                      style={{ color: statusColor }}
+                    >
+                      <span
+                        className="w-1.5 h-1.5 rounded-full"
+                        style={{ backgroundColor: statusColor }}
+                      />
+                      <span>{srv.status}</span>
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -251,8 +280,14 @@ export const OverviewView: React.FC = () => {
                 <Bot size={15} className="text-[var(--accent-primary)]" />
                 <span>Guardian Agents</span>
               </h3>
-              <span className="text-[10px] font-mono text-[var(--accent-primary)] bg-[var(--accent-muted)] px-1.5 py-0.5 rounded">
-                Active
+              <span
+                className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+                style={{
+                  color: isPaused ? 'var(--status-warning)' : 'var(--accent-primary)',
+                  backgroundColor: isPaused ? 'var(--status-warning-bg)' : 'var(--accent-muted)',
+                }}
+              >
+                {isPaused ? 'Paused' : 'Active'}
               </span>
             </div>
 
